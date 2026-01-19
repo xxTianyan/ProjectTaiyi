@@ -181,13 +181,11 @@ public:
 
     // 检查顶点数据
     void inspect_vertex(const size_t v_id, const Vec3& force, const Mat3& hessian, const float dx, const float penetration, const float avg_len) {
+        if (triggered_this_frame_.load()) return;
+
         // 1. 快速无锁检查 (Performance Critical)
         const bool has_nan = !std::isfinite(dx) || !std::isfinite(penetration) ||
                        !std::isfinite(force.x()) || !std::isfinite(force.y()) || !std::isfinite(force.z());
-
-        // 更新统计 (使用原子操作或宽松的非原子更新，统计值的些许 Data Race 通常可以接受，但 Trigger 必须准确)
-        // 这里为了简单，针对 max/min 我们允许轻微竞争，或者使用 spinlock。
-        // 为了绝对安全，建议只在 Trigger 时加锁。
 
         if (penetration > current_frame_.maxPenetration) current_frame_.maxPenetration = penetration;
         if (dx > current_frame_.maxDx) current_frame_.maxDx = dx;
@@ -198,6 +196,7 @@ public:
         // 2. 触发逻辑
         if (has_nan) {
             report_trigger(DebugErrorType::NaN_Detected, v_id, "NaN in Vertex (dx/pen/force)", dx);
+
             return;
         }
 
@@ -207,7 +206,7 @@ public:
     }
 
     // 检查四面体数据
-    void inspect_tet(const size_t t_id, const float J, const float signed_vol) {
+    bool inspect_tet(const size_t t_id, const float J, const float signed_vol) {
         const bool has_nan = !std::isfinite(J) || !std::isfinite(signed_vol);
 
         if (J < current_frame_.minJ) current_frame_.minJ = J;
@@ -215,15 +214,20 @@ public:
 
         if (has_nan) {
             report_trigger(DebugErrorType::NaN_Detected, t_id, "NaN in Tet (J/Vol)", J);
-            return;
+            return true;
         }
 
         if (cfg_.break_on_inversion && signed_vol <= 0.0f) {
             report_trigger(DebugErrorType::Inverted_Element, t_id, "Element Inverted (Vol < 0)", signed_vol);
+            return true;
         }
-        else if (cfg_.break_on_small_J && J < 1e-5) {
+
+        if (cfg_.break_on_small_J && J < 1e-5) {
             report_trigger(DebugErrorType::Low_Jacobian, t_id, "Low Jacobian", J);
+            return true;
         }
+
+        return false;
     }
 
     // --- Dump 功能 ---
@@ -301,6 +305,20 @@ private:
             printf("[Debugger] FROZEN at frame %zu. Reason: %s (ID: %zu, Val: %f)\n",
                    frame_id_, msg.c_str(), id, val);
         }
+    }
+
+    void record_force_hessian(const Vec3& inertia_f, const Vec3& stvk_tri_f, const Vec3& NH_tet_f, const Vec3& contact_f, const Vec3 total_f,
+        const Mat3& inertia_H, const Mat3& stvk_tri_H, const Mat3& NH_tet_H, const Mat3& contact_H, const Mat3& total_H) {
+        current_frame_.component_forces.emplace_back("Inertia Force", inertia_f);
+        current_frame_.component_forces.emplace_back("STVK Tri Force", stvk_tri_f);
+        current_frame_.component_forces.emplace_back("Neo-Hookean Force", NH_tet_f);
+        current_frame_.component_forces.emplace_back("Contact Force", contact_f);
+        current_frame_.component_hessians.emplace_back("Inertia Hessian", inertia_H);
+        current_frame_.component_hessians.emplace_back("STVK Tri Hessian", stvk_tri_H);
+        current_frame_.component_hessians.emplace_back("Neo-Hookean Tet Hessian", NH_tet_H);
+        current_frame_.component_hessians.emplace_back("Contact Hessian", contact_H);
+        current_frame_.trigger_force = total_f;
+        current_frame_.trigger_hessian = total_H;
     }
 
     RunState state_ = RunState::Running;

@@ -152,120 +152,9 @@ void VBDSolver::Step(State& state_in, State& state_out, const float dt) {
     forward_step(state_in, dt);
     for (int iter = 0; iter < num_iters; ++iter) {
         ScopeTimer iter_timer = dbg_ ? dbg_->timer_iteration() : ScopeTimer(nullptr);
-        solve_serial(state_in, state_out, dt);
+        solve(state_in, state_out, dt);
     }
     update_velocity(state_out, dt);
-}
-
-void VBDSolver::accumulate_stvk_triangle_force_hessian_serial(
-    const std::span<const Vec3> pos,
-    const MMaterial& mat,
-    const triangle& face,
-    const uint32_t vtex_order,
-    Vec3& force,
-    Mat3& H) const{
-    // StVK energy density: psi = mu * ||G||_F^2 + 0.5 * lambda * (trace(G))^2
-
-    if (vtex_order > 2u)
-        throw std::runtime_error("vtex order is over stvk triangle limit");
-
-    const float area = face.rest_area;
-    if (area <= 0.0f) return;
-
-    const Vec3& x0 = pos[face.vertices[0]];
-    const Vec3& x1 = pos[face.vertices[1]];
-    const Vec3& x2 = pos[face.vertices[2]];
-
-    const float mu = mat.mu();
-    const float lambda = mat.lambda();
-
-    const float DmInv00 = face.Dm_inv(0, 0);
-    const float DmInv01 = face.Dm_inv(0, 1);
-    const float DmInv10 = face.Dm_inv(1, 0);
-    const float DmInv11 = face.Dm_inv(1, 1);
-
-    // F = [x01, x02] * DmInv  (3x2)
-    const Vec3 x01 = x1 - x0;
-    const Vec3 x02 = x2 - x0;
-    const Vec3 f0 = x01 * DmInv00 + x02 * DmInv10;
-    const Vec3 f1 = x01 * DmInv01 + x02 * DmInv11;
-
-    // Green strain (2x2 symmetric)
-    const float f0_dot_f0 = f0.dot(f0);
-    const float f1_dot_f1 = f1.dot(f1);
-    const float f0_dot_f1 = f0.dot(f1);
-
-    const float G00 = 0.5f * (f0_dot_f0 - 1.0f);
-    const float G11 = 0.5f * (f1_dot_f1 - 1.0f);
-    const float G01 = 0.5f * (f0_dot_f1);
-
-    const float G_frob_sq = (G00 * G00) + (G11 * G11) + 2.0f * (G01 * G01);
-    if (G_frob_sq < 1.0e-20f) return;
-
-    const float trace_G = G00 + G11;
-
-    // PK1 = 2*mu*F*G + lambda*trace(G)*F  (3x2 => two Vec3 columns)
-    const float two_mu = 2.0f * mu;
-    const float lambda_trace_G = lambda * trace_G;
-
-    const Vec3 PK1_col0 = f0 * (two_mu * G00 + lambda_trace_G) + f1 * (two_mu * G01);
-    const Vec3 PK1_col1 = f0 * (two_mu * G01) + f1 * (two_mu * G11 + lambda_trace_G);
-
-    // dF/dx for the current vertex (scalar coefficients because x is 3D and F cols are 3D)
-    float df0_dx = 0.0f;
-    float df1_dx = 0.0f;
-    switch (vtex_order) {
-    case 0u: // x0
-        df0_dx = -(DmInv00 + DmInv10);
-        df1_dx = -(DmInv01 + DmInv11);
-        break;
-    case 1u: // x1
-        df0_dx = DmInv00;
-        df1_dx = DmInv01;
-        break;
-    case 2u: // x2
-        df0_dx = DmInv10;
-        df1_dx = DmInv11;
-        break;
-    default:
-        return;
-    }
-
-    // Force: f = - dE/dx = - area * (PK1_col0 * df0_dx + PK1_col1 * df1_dx)
-    const Vec3 dpsi_dx = PK1_col0 * df0_dx + PK1_col1 * df1_dx;
-    force += (-dpsi_dx) * area;
-
-    // Hessian (as in your current formulation)
-    const float Ic = f0_dot_f0 + f1_dot_f1;
-    const float two_dpsi_dIc = (-mu) + (0.5f * Ic - 1.0f) * lambda;
-
-    const Mat3 I33 = Mat3::Identity();
-
-    const Mat3 f0f0T = f0 * f0.transpose();
-    const Mat3 f1f1T = f1 * f1.transpose();
-    const Mat3 f0f1T = f0 * f1.transpose();
-    const Mat3 f1f0T = f0f1T.transpose();
-
-    const Mat3 H_IIc00 = mu * (f0_dot_f0 * I33 + 2.0f * f0f0T + f1f1T);
-    const Mat3 H_IIc11 = mu * (f1_dot_f1 * I33 + 2.0f * f1f1T + f0f0T);
-    const Mat3 H_IIc01 = mu * (f0_dot_f1 * I33 + f1f0T);
-
-    const Mat3 d2E_dF2_00 = lambda * f0f0T + two_dpsi_dIc * I33 + H_IIc00;
-    const Mat3 d2E_dF2_01 = lambda * f0f1T + H_IIc01;
-    const Mat3 d2E_dF2_11 = lambda * f1f1T + two_dpsi_dIc * I33 + H_IIc11;
-
-    const float s0 = df0_dx;
-    const float s1 = df1_dx;
-    const float s0s0 = s0 * s0;
-    const float s1s1 = s1 * s1;
-    const float s0s1 = s0 * s1;
-
-    Mat3 delta_hessian =
-        s0s0 * d2E_dF2_00 +
-        s1s1 * d2E_dF2_11 +
-        s0s1 * (d2E_dF2_01 + d2E_dF2_01.transpose());
-
-    H += delta_hessian * area;
 }
 
 void VBDSolver::accumulate_stvk_triangle_force_hessian(const std::span<const Vec3> pos,
@@ -463,109 +352,6 @@ void VBDSolver::accumulate_dihedral_angle_based_bending_force_hessian(const std:
 }
 
 
-void VBDSolver::accumulate_dihedral_angle_based_bending_force_hessian_serial(
-    const std::span<const Vec3> pos,
-    const MMaterial& mat,
-    const edge& e,
-    const uint32_t vtex_order,
-    Vec3& force,
-    Mat3& H) const{
-    constexpr float eps = 1e-6f;
-
-    if (vtex_order > 3u)
-        throw std::runtime_error("vtex_order is over dihedral edge limit");
-
-    const Vec3& x0 = pos[e.vertices[0]];
-    const Vec3& x1 = pos[e.vertices[1]];
-    const Vec3& x2 = pos[e.vertices[2]];
-    const Vec3& x3 = pos[e.vertices[3]];
-
-    const Vec3 x02 = x2 - x0;
-    const Vec3 x03 = x3 - x0;
-    const Vec3 x12 = x2 - x1;
-    const Vec3 x13 = x3 - x1;
-    const Vec3 edge_line = x3 - x2;
-
-    const Vec3 n1 = x02.cross(x03);
-    const Vec3 n2 = x13.cross(x12);
-
-    const float n1_norm = n1.norm();
-    const float n2_norm = n2.norm();
-    const float e_norm  = edge_line.norm();
-
-    if (n1_norm < eps || n2_norm < eps || e_norm < eps) return;
-
-    const Vec3 n1_hat = n1 / n1_norm;
-    const Vec3 n2_hat = n2 / n2_norm;
-    const Vec3 e_hat  = edge_line / e_norm;
-
-    const float sin_theta = (n1_hat.cross(n2_hat)).dot(e_hat);
-    const float cos_theta = n1_hat.dot(n2_hat);
-    const float theta = std::atan2(sin_theta, cos_theta);
-
-    const float k = mat.bend_stiff() * e.rest_length;
-    if (k == 0.0f) return;
-
-    const float dE_dtheta = k * (theta - e.rest_theta);
-
-    // Skew(n_hat) 是 ComputeAngleDerivative 所需的公共量
-    const Mat3 skew_n1 = TY::Skew(n1_hat);
-    const Mat3 skew_n2 = TY::Skew(n2_hat);
-
-    // 只计算当前顶点对应的 dn1hat/dx 与 dn2hat/dx
-    Mat3 dn1hat_dx = Mat3::Zero();
-    Mat3 dn2hat_dx = Mat3::Zero();
-
-    switch (vtex_order) {
-    case 0u: {
-        // x0: dn1hat/dx0 != 0, dn2hat/dx0 = 0
-        const Mat3 skew_e = TY::Skew(edge_line);
-        dn1hat_dx = TY::ComputeNormalizedVectorDerivative(n1_norm, n1_hat, skew_e);
-        // dn2hat_dx stays zero
-        break;
-    }
-    case 1u: {
-        // x1: dn1hat/dx1 = 0, dn2hat/dx1 != 0
-        const Mat3 skew_e = TY::Skew(edge_line);
-        dn2hat_dx = TY::ComputeNormalizedVectorDerivative(n2_norm, n2_hat, -skew_e);
-        break;
-    }
-    case 2u: {
-        // x2: dn1hat/dx2 uses -Skew(x03), dn2hat/dx2 uses Skew(x13)
-        const Mat3 skew_x03 = TY::Skew(x03);
-        const Mat3 skew_x13 = TY::Skew(x13);
-        dn1hat_dx = TY::ComputeNormalizedVectorDerivative(n1_norm, n1_hat, -skew_x03);
-        dn2hat_dx = TY::ComputeNormalizedVectorDerivative(n2_norm, n2_hat,  skew_x13);
-        break;
-    }
-    case 3u: {
-        // x3: dn1hat/dx3 uses Skew(x02), dn2hat/dx3 uses -Skew(x12)
-        const Mat3 skew_x02 = TY::Skew(x02);
-        const Mat3 skew_x12 = TY::Skew(x12);
-        dn1hat_dx = TY::ComputeNormalizedVectorDerivative(n1_norm, n1_hat,  skew_x02);
-        dn2hat_dx = TY::ComputeNormalizedVectorDerivative(n2_norm, n2_hat, -skew_x12);
-        break;
-    }
-    default:
-        return;
-    }
-
-    // 只算当前顶点的 dtheta/dx
-    const Vec3 dtheta_dx = TY::ComputeAngleDerivative(
-        n1_hat, n2_hat, e_hat,
-        dn1hat_dx, dn2hat_dx,
-        sin_theta, cos_theta,
-        skew_n1, skew_n2
-    );
-
-    // Elastic force & (Gauss-Newton) Hessian
-    const Vec3 bending_force = (-dE_dtheta) * dtheta_dx;
-    const Mat3 bending_hessian = k * (dtheta_dx * dtheta_dx.transpose());
-
-    force += bending_force;
-    H += bending_hessian;
-}
-
 void VBDSolver::accumulate_neo_hookean_tetrahedron_force_hessian(const std::span<const Vec3> pos, const MMaterial &mat,
     const tetrahedron &tet, const uint32_t vtex_order, Vec3 &force, Mat3 &H, const size_t tet_id) const{
 
@@ -692,7 +478,7 @@ void VBDSolver::forward_step(State& state_in, const float dt) {
     }
 }
 
-void VBDSolver::solve_serial(State& state_in, State& state_out, const float dt) const {
+void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
 
     if (&state_in == &state_out) {
         throw std::runtime_error("VBDSolver::Step requires distinct state_in/state_out.");

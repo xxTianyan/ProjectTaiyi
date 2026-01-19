@@ -27,20 +27,14 @@ public:
 
     void forward_step(State& state_in, float dt);
 
-    void solve_serial(State& state_in, State& state_out, float dt) const;
+    void solve(State& state_in, State& state_out, float dt) const;
 
     void update_velocity(State& stat_out, float dt) const;
 
     void accumulate_stvk_triangle_force_hessian(std::span<const Vec3> pos, const MMaterial& mat,
         const triangle& face, uint32_t vtex_order, Vec3& force, Mat3& H) const;
 
-    void accumulate_stvk_triangle_force_hessian_serial(std::span<const Vec3> pos, const MMaterial& mat,
-        const triangle& face, uint32_t vtex_order, Vec3& force, Mat3& H) const;
-
     void accumulate_dihedral_angle_based_bending_force_hessian(std::span<const Vec3> pos, const MMaterial& mat,
-        const edge& e, uint32_t vtex_order, Vec3& force, Mat3& H) const;
-
-    void accumulate_dihedral_angle_based_bending_force_hessian_serial(std::span<const Vec3> pos, const MMaterial& mat,
         const edge& e, uint32_t vtex_order, Vec3& force, Mat3& H) const;
 
     void accumulate_neo_hookean_tetrahedron_force_hessian(std::span<const Vec3> pos, const MMaterial& mat,
