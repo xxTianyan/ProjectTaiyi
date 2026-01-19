@@ -162,7 +162,7 @@ void VBDSolver::accumulate_stvk_triangle_force_hessian(const std::span<const Vec
     const triangle& face,
     const uint32_t vtex_order,
     Vec3& force,
-    Mat3& H) const{
+    Mat3& H) {
     // advised by newton physics, evaluate_stvk_force_hessian function
     // StVK energy density: psi = mu * ||G||_F^2 + 0.5 * lambda * (trace(G))^2
 
@@ -258,7 +258,7 @@ void VBDSolver::accumulate_dihedral_angle_based_bending_force_hessian(const std:
     const edge& e,
     const uint32_t vtex_order,
     Vec3& force,
-    Mat3& H) const {
+    Mat3& H) {
     // advised by function with the same name in newton physics.
     constexpr float eps = 1e-6f;
 
@@ -431,7 +431,7 @@ void VBDSolver::accumulate_neo_hookean_tetrahedron_force_hessian(const std::span
     // ---- Hessian diagonal block (VBD-friendly SPD) ----
     const float wi2 = wi.squaredNorm();
 
-    constexpr float diag_eps = 1.0e-10f;
+    // constexpr float diag_eps = 1.0e-10f;
     Mat3 Hi = (V0 * (mu * wi2)) * Mat3::Identity();
     // Hi.diagonal().array() += diag_eps;
 
@@ -520,15 +520,13 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
         const auto& edge_adjacency = adjacency_info_.vertex_edges;
         const auto& tet_adjacency = adjacency_info_.vertex_tets;
 
-        Vec3 force = Vec3::Zero();
-        Mat3 hessian = Mat3::Zero();
+        const Vec3 inertia_force = -(pos - inertia_[vtex_id]) / (inv_mass * dt * dt);
+        const Mat3 inertia_hessian = Mat3::Identity() / (inv_mass * dt * dt);
 
-        force += -(pos - inertia_[vtex_id]) / (inv_mass * dt * dt);
-        hessian += Mat3::Identity() / (inv_mass * dt * dt);
+        Vec3 contact_force = Vec3::Zero();
+        Mat3 contact_hessian = Mat3::Zero();
 
         if (surface_vertices[vtex_id]) {
-            Vec3 fc = Vec3::Zero();
-            Mat3 Hc = Mat3::Zero();
 
             const float m = 1.0f / inv_mass;
             const float ke = ke_factor * m / (dt * dt);
@@ -541,12 +539,21 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
                 ke, kd_ratio,
                 mu_fric, eps_fric,
                 dt,
-                fc, Hc
+                contact_force, contact_hessian
             );
-
-            force   += fc;
-            hessian += Hc;
         }
+
+        // dihedral_angle
+        Vec3 dihedral_angle_force = Vec3::Zero();
+        Mat3 dihedral_angle_hessian = Mat3::Zero();
+
+        // stvk
+        Vec3 stvk_tri_force = Vec3::Zero();
+        Mat3 stvk_tri_hessian = Mat3::Zero();
+
+        // neo_hookean
+        Vec3 NH_force = Vec3::Zero();
+        Mat3 NH_hessian = Mat3::Zero();
 
         {
             ScopeTimer gradient_timer = dbg_ ? dbg_->timer_gradient() : ScopeTimer(nullptr);
@@ -555,7 +562,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
                 const auto face_id = AdjacencyCSR::unpack_id(pack);
                 const auto order = AdjacencyCSR::unpack_order(pack);
                 const auto& face = model_->tris[face_id];
-                accumulate_stvk_triangle_force_hessian(state_in.particle_pos, material_, face, order, force, hessian);
+                accumulate_stvk_triangle_force_hessian(state_in.particle_pos, material_, face, order, stvk_tri_force, stvk_tri_hessian);
             }
 
             for (uint32_t e = edge_adjacency.begin(vtex_id); e < edge_adjacency.end(vtex_id); ++e) {
@@ -563,7 +570,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
                 const auto edge_id = AdjacencyCSR::unpack_id(pack);
                 const auto order = AdjacencyCSR::unpack_order(pack);
                 const auto& edge = model_->edges[edge_id];
-                accumulate_dihedral_angle_based_bending_force_hessian(state_in.particle_pos, material_, edge, order, force, hessian);
+                accumulate_dihedral_angle_based_bending_force_hessian(state_in.particle_pos, material_, edge, order, dihedral_angle_force, dihedral_angle_hessian);
             }
 
             for (uint32_t t = tet_adjacency.begin(vtex_id); t < tet_adjacency.end(vtex_id); ++t) {
@@ -571,22 +578,35 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
                 const auto tet_id = AdjacencyCSR::unpack_id(pack);
                 const auto order = AdjacencyCSR::unpack_order(pack);
                 const auto& tet = model_->tets[tet_id];
-                accumulate_neo_hookean_tetrahedron_force_hessian(state_in.particle_pos, material_, tet, order, force, hessian, tet_id);
+                accumulate_neo_hookean_tetrahedron_force_hessian(state_in.particle_pos, material_, tet, order, NH_force, NH_hessian, tet_id);
             }
 
         }
 
         Vec3 dx{};
 
+        Vec3 force = inertia_force + dihedral_angle_force + stvk_tri_force + NH_force + contact_force;
+        Mat3 hessian = inertia_hessian + dihedral_angle_hessian + stvk_tri_hessian + NH_hessian + contact_hessian;
+
         {
             ScopeTimer liner_solve_timer = dbg_ ? dbg_->timer_linear_solve() : ScopeTimer(nullptr);
             dx = TY::SolveSPDOrRegularize(hessian, force);
         }
 
+        // debug
+        if (dbg_) {
+            auto penetration = std::max(-(pos.y()-radius), 0.0f);
+            dbg_->inspect_vertex(vtex_id, force, hessian, dx.norm(), penetration, .1);
+            if (dbg_->stop_requested())
+                dbg_->record_force_hessian(inertia_force, dihedral_angle_force,
+                    stvk_tri_force, NH_force, contact_force, force,
+                    inertia_hessian, dihedral_angle_hessian, stvk_tri_hessian,
+                    NH_hessian, contact_hessian, hessian);
+        }
 
         /*const float maxStep = 0.05f * model_->avg_edge_length; // model average edge length
-        float n = dx.norm();
-        if (n > maxStep) dx *= (maxStep / n);*/
+         *float n = dx.norm();
+         *if (n > maxStep) dx *= (maxStep / n);*/
 
         pos_new = pos + dx;
 
@@ -594,12 +614,6 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
         // if parallel with color group, need to copy new pos back to state_in to satisfy GS.
         // state_in.pos = state_out.pos ...
         pos = pos_new;
-
-
-        // debug
-        if (dbg_) {
-            dbg_->inspect_vertex(vtex_id, force, hessian, dx.norm(), 0.0, .1);
-        }
 
     }
 }

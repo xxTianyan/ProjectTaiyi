@@ -45,7 +45,7 @@ struct DebugTriggerConfig {
     bool break_on_inversion = true;   // 遇到翻转 (Signed Vol < 0) 立刻暂停
     bool break_on_small_J = false;      // 遇到 J 小于 0.1 触发
     float dx_limit_scale = 0.5f;      // 允许稍大的位移，过于灵敏会频繁打断
-    float max_pen_trigger = .8f;     // 穿透深度阈值
+    float max_pen_trigger = .1f;     // 穿透深度阈值
 };
 
 // --- 错误类型 ---
@@ -80,6 +80,7 @@ struct DebugFrameStats {
     DebugErrorType trigger_reason = DebugErrorType::None;
     size_t trigger_element_id = -1; // Vertex ID or Tet ID
     std::string trigger_msg;        // 详细描述
+    bool recorded = false;
 
     // 现场数据 snapshot (导致错误的那个点的物理量)
     std::vector<std::pair<std::string, Vec3>> component_forces;
@@ -94,6 +95,8 @@ struct DebugFrameStats {
         minJ = std::numeric_limits<float>::infinity();
         minSignedVol = std::numeric_limits<float>::infinity();
         maxPenetration = -std::numeric_limits<float>::infinity();
+        component_forces.resize(5);
+        component_hessians.resize(5);
     }
 };
 
@@ -166,6 +169,7 @@ public:
 
     bool is_frozen() const { return state_ == RunState::Frozen; }
     const DebugFrameStats& get_current_stats() const { return current_frame_; }
+    [[nodiscard]] bool stop_requested() const { return triggered_this_frame_.load();}
 
     // ---- Timer -----
     ScopeTimer timer_frame() { return ScopeTimer(&current_frame_.time_total_physical_frame); }
@@ -190,23 +194,28 @@ public:
         if (penetration > current_frame_.maxPenetration) current_frame_.maxPenetration = penetration;
         if (dx > current_frame_.maxDx) current_frame_.maxDx = dx;
 
-        current_frame_.trigger_force = force;
-        current_frame_.trigger_hessian = hessian;
 
         // 2. 触发逻辑
         if (has_nan) {
             report_trigger(DebugErrorType::NaN_Detected, v_id, "NaN in Vertex (dx/pen/force)", dx);
-
             return;
         }
 
         if (dx > cfg_.dx_limit_scale * avg_len) {
             report_trigger(DebugErrorType::Large_Deformation, v_id, "Large dx detected", dx);
+            return;
+        }
+
+        if (penetration > cfg_.max_pen_trigger) {
+            report_trigger(DebugErrorType::Large_Penetration, v_id, "Large Penetration", penetration);
         }
     }
 
     // 检查四面体数据
-    bool inspect_tet(const size_t t_id, const float J, const float signed_vol) {
+    void inspect_tet(const size_t t_id, const float J, const float signed_vol) {
+
+        if (triggered_this_frame_.load()) return;
+
         const bool has_nan = !std::isfinite(J) || !std::isfinite(signed_vol);
 
         if (J < current_frame_.minJ) current_frame_.minJ = J;
@@ -214,20 +223,36 @@ public:
 
         if (has_nan) {
             report_trigger(DebugErrorType::NaN_Detected, t_id, "NaN in Tet (J/Vol)", J);
-            return true;
+            return;
         }
 
         if (cfg_.break_on_inversion && signed_vol <= 0.0f) {
             report_trigger(DebugErrorType::Inverted_Element, t_id, "Element Inverted (Vol < 0)", signed_vol);
-            return true;
+            return;
         }
 
         if (cfg_.break_on_small_J && J < 1e-5) {
             report_trigger(DebugErrorType::Low_Jacobian, t_id, "Low Jacobian", J);
-            return true;
+            return;
         }
+    }
 
-        return false;
+    void record_force_hessian(const Vec3& inertia_f, const Vec3& dihedral_angle_f, const Vec3& stvk_tri_f, const Vec3& NH_tet_f, const Vec3& contact_f, const Vec3& total_f,
+        const Mat3& inertia_H, const Mat3& dihedral_angle_H, const Mat3& stvk_tri_H, const Mat3& NH_tet_H, const Mat3& contact_H, const Mat3& total_H) {
+        if (current_frame_.recorded) return;
+        current_frame_.component_forces[0] = std::make_pair("Inertia", inertia_f);
+        current_frame_.component_forces[1] = std::make_pair("Dihedral Angle", dihedral_angle_f);
+        current_frame_.component_forces[2] = std::make_pair("STVK Tri", stvk_tri_f);
+        current_frame_.component_forces[3] = std::make_pair("Neo-Hookean", NH_tet_f);
+        current_frame_.component_forces[4] = std::make_pair("Contact", contact_f);
+        current_frame_.component_hessians[0] = std::make_pair("Inertia", inertia_H);
+        current_frame_.component_hessians[1] = std::make_pair("Dihedral Angle", dihedral_angle_H);
+        current_frame_.component_hessians[2] = std::make_pair("STVK Tri", stvk_tri_H);
+        current_frame_.component_hessians[3] = std::make_pair("Neo-Hookean Tet", NH_tet_H);
+        current_frame_.component_hessians[4] = std::make_pair("Contact", contact_H);
+        current_frame_.trigger_force = total_f;
+        current_frame_.trigger_hessian = total_H;
+        current_frame_.recorded = true;
     }
 
     // --- Dump 功能 ---
@@ -307,19 +332,6 @@ private:
         }
     }
 
-    void record_force_hessian(const Vec3& inertia_f, const Vec3& stvk_tri_f, const Vec3& NH_tet_f, const Vec3& contact_f, const Vec3 total_f,
-        const Mat3& inertia_H, const Mat3& stvk_tri_H, const Mat3& NH_tet_H, const Mat3& contact_H, const Mat3& total_H) {
-        current_frame_.component_forces.emplace_back("Inertia Force", inertia_f);
-        current_frame_.component_forces.emplace_back("STVK Tri Force", stvk_tri_f);
-        current_frame_.component_forces.emplace_back("Neo-Hookean Force", NH_tet_f);
-        current_frame_.component_forces.emplace_back("Contact Force", contact_f);
-        current_frame_.component_hessians.emplace_back("Inertia Hessian", inertia_H);
-        current_frame_.component_hessians.emplace_back("STVK Tri Hessian", stvk_tri_H);
-        current_frame_.component_hessians.emplace_back("Neo-Hookean Tet Hessian", NH_tet_H);
-        current_frame_.component_hessians.emplace_back("Contact Hessian", contact_H);
-        current_frame_.trigger_force = total_f;
-        current_frame_.trigger_hessian = total_H;
-    }
 
     RunState state_ = RunState::Running;
     bool step_once_armed_ = false;

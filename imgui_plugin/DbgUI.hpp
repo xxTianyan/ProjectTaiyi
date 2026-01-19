@@ -118,7 +118,7 @@ private:
 
         // --- 2. 基础信息表格 ---
         if (ImGui::BeginTable("CrashBasic", 2, ImGuiTableFlags_BordersInnerH)) {
-            ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+            ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
             ImGui::TableSetupColumn("Value");
 
             // Helper Lambda
