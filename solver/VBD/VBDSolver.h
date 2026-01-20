@@ -17,7 +17,7 @@ class SolverDebugger;
 class VBDSolver final : public ISolver {
 
 public:
-    explicit VBDSolver(const MModel* model, const int num_iters, const MMaterial& material = default_cloth(), SolverDebugger* dbg = nullptr)
+    explicit VBDSolver(const MModel& model, const int num_iters, const MMaterial& material = default_cloth(), SolverDebugger* dbg = nullptr)
         : model_(model), num_iters(num_iters), dbg_(dbg),material_(material) {}
     ~VBDSolver() override = default;
 
@@ -45,7 +45,7 @@ private:
 
     void BuildAdjacencyInfo();
 
-    const MModel*  model_;
+    const MModel&  model_;
 
     int num_iters;
 

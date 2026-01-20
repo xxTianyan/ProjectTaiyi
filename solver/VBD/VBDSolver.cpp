@@ -122,18 +122,18 @@ inline void evaluate_static_plane_particle_contact(
 
 void VBDSolver::Init() {
 
-    const size_t num_nodes = model_->total_particles();
+    const size_t num_nodes = model_.total_particles();
     if (inertia_.size() != num_nodes) inertia_.resize(num_nodes);
     if (prev_pos_.size() != num_nodes) prev_pos_.resize(num_nodes);
 
-    if (model_->topology_version != topology_version_
+    if (model_.topology_version != topology_version_
         || adjacency_info_.vertex_faces.offsets.size() != num_nodes + 1) {
         BuildAdjacencyInfo();
-        topology_version_ = model_->topology_version;
+        topology_version_ = model_.topology_version;
 
         // record surface vertex
-        surface_vertices.resize(model_->num_particles, 0);
-        for (const auto& tri: model_->render_tris) {
+        surface_vertices.resize(model_.num_particles, 0);
+        for (const auto& tri: model_.render_tris) {
             surface_vertices[tri.vertices[0]] = 1;
             surface_vertices[tri.vertices[1]] = 1;
             surface_vertices[tri.vertices[2]] = 1;
@@ -460,13 +460,13 @@ void VBDSolver::accumulate_neo_hookean_tetrahedron_force_hessian(const std::span
 
 
 void VBDSolver::forward_step(State& state_in, const float dt) {
-    const size_t num_nodes = model_->total_particles();
-    const auto& gravity = model_->gravity_;
+    const size_t num_nodes = model_.total_particles();
+    const auto& gravity = model_.gravity_;
 
     for (size_t i = 0; i < num_nodes; ++i) {
         prev_pos_[i] = state_in.particle_pos[i];
 
-        const float inv_mass = model_->particle_inv_mass[i];
+        const float inv_mass = model_.particle_inv_mass[i];
         if (inv_mass == 0) {
             inertia_[i] = state_in.particle_pos[i];
             continue;
@@ -484,7 +484,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
         throw std::runtime_error("VBDSolver::Step requires distinct state_in/state_out.");
     }
 
-    const auto num_nodes = model_->total_particles();
+    const auto num_nodes = model_.total_particles();
 
     // Plane: xz ground => point (0,0,0), normal +Y
     const Vec3 plane_p(0.0f, 0.0f, 0.0f);
@@ -507,7 +507,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
     for (size_t vtex_id = 0; vtex_id < num_nodes; ++vtex_id) {
         auto& pos = state_in.particle_pos[vtex_id];
         auto& pos_new = state_out.particle_pos[vtex_id];
-        const auto& inv_mass = model_->particle_inv_mass[vtex_id];
+        const auto& inv_mass = model_.particle_inv_mass[vtex_id];
 
         if (inv_mass <= 0.0f) {
             pos_new = pos;
@@ -559,7 +559,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
                 const auto pack = face_adjacency.incidents[f];
                 const auto face_id = AdjacencyCSR::unpack_id(pack);
                 const auto order = AdjacencyCSR::unpack_order(pack);
-                const auto& face = model_->tris[face_id];
+                const auto& face = model_.tris[face_id];
                 accumulate_stvk_triangle_force_hessian(state_in.particle_pos, material_, face, order, stvk_tri_force, stvk_tri_hessian);
             }
 
@@ -567,7 +567,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
                 const auto pack = edge_adjacency.incidents[e];
                 const auto edge_id = AdjacencyCSR::unpack_id(pack);
                 const auto order = AdjacencyCSR::unpack_order(pack);
-                const auto& edge = model_->edges[edge_id];
+                const auto& edge = model_.edges[edge_id];
                 accumulate_dihedral_angle_based_bending_force_hessian(state_in.particle_pos, material_, edge, order, dihedral_angle_force, dihedral_angle_hessian);
             }
 
@@ -575,7 +575,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
                 const auto pack = tet_adjacency.incidents[t];
                 const auto tet_id = AdjacencyCSR::unpack_id(pack);
                 const auto order = AdjacencyCSR::unpack_order(pack);
-                const auto& tet = model_->tets[tet_id];
+                const auto& tet = model_.tets[tet_id];
                 accumulate_neo_hookean_tetrahedron_force_hessian(state_in.particle_pos, material_, tet, order, NH_force, NH_hessian, tet_id);
             }
 
@@ -618,7 +618,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
 
 void VBDSolver::update_velocity(State& state_out, const float dt) const {
 
-    const auto num_nodes = model_->total_particles();
+    const auto num_nodes = model_.total_particles();
 
     for (size_t i = 0; i < num_nodes; ++i) {
         state_out.particle_vel[i] = (state_out.particle_pos[i] - prev_pos_[i]) / dt ;
@@ -626,11 +626,11 @@ void VBDSolver::update_velocity(State& state_out, const float dt) const {
 }
 
 void VBDSolver::BuildAdjacencyInfo() {
-    const size_t num_nodes = model_->total_particles();
-    if (!model_->edges.empty()) {
+    const size_t num_nodes = model_.total_particles();
+    if (!model_.edges.empty()) {
         BuildVertexIncidentCSR(
             num_nodes,
-            model_->edges,
+            model_.edges,
             4u,
             [](const edge& e, uint32_t k) { return static_cast<uint32_t>(e.vertices[k]); },
             adjacency_info_.vertex_edges
@@ -641,10 +641,10 @@ void VBDSolver::BuildAdjacencyInfo() {
         adjacency_info_.vertex_edges.incidents.clear();
     }
 
-    if (!model_->tris.empty()) {
+    if (!model_.tris.empty()) {
         BuildVertexIncidentCSR(
             num_nodes,
-            model_->tris,
+            model_.tris,
             3u,
             [](const triangle& t, uint32_t k) { return static_cast<uint32_t>(t.vertices[k]); },
             adjacency_info_.vertex_faces
@@ -655,10 +655,10 @@ void VBDSolver::BuildAdjacencyInfo() {
         adjacency_info_.vertex_faces.incidents.clear();
     }
 
-    if (!model_->tets.empty()) {
+    if (!model_.tets.empty()) {
         BuildVertexIncidentCSR(
             num_nodes,
-            model_->tets,
+            model_.tets,
             4u,
             [](const tetrahedron& t, uint32_t k) { return static_cast<uint32_t>(t.vertices[k]); },
             adjacency_info_.vertex_tets
