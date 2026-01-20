@@ -11,6 +11,7 @@
 #include "Scene.h"
 #include "ISolver.h"
 #include "MaterialParams.hpp"
+#include "TriMeshCollision.h"
 
 class SolverDebugger;
 
@@ -31,6 +32,8 @@ public:
 
     void update_velocity(State& stat_out, float dt) const;
 
+    void set_self_collision();
+
     static void accumulate_stvk_triangle_force_hessian(std::span<const Vec3> pos, const MMaterial& mat,
                                                        const triangle& face, uint32_t vtex_order, Vec3& force, Mat3& H);
 
@@ -50,6 +53,8 @@ private:
     int num_iters;
 
     SolverDebugger* dbg_;
+
+    std::unique_ptr<TriMeshCollisionDetector> detector_;
 
     MMaterial material_;
 

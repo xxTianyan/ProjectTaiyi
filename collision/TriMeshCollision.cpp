@@ -167,7 +167,7 @@ void TriMeshCollisionDetector::compute_particle_conservative_bounds() {
             for (uint32_t i = fs; i < fe; ++i) {
                 const uint32_t packed = adj_.vertex_faces.incidents[i];
                 const uint32_t tri_id = AdjacencyCSR::unpack_id(packed);
-                min_dist = std::min(min_dist, info_.vertex_colliding_triangles_min_dist[tri_id]);
+                min_dist = std::min(min_dist, info_.triangle_colliding_vertices_min_dist[tri_id]);
             }
         }
 

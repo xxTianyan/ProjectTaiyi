@@ -3,10 +3,8 @@
 //
 
 #include <stdexcept>
-#include "VBDSolver.h"
-
 #include <iostream>
-
+#include "VBDSolver.h"
 #include "Debugger.hpp"
 #include "Math.hpp"
 
@@ -623,6 +621,11 @@ void VBDSolver::update_velocity(State& state_out, const float dt) const {
     for (size_t i = 0; i < num_nodes; ++i) {
         state_out.particle_vel[i] = (state_out.particle_pos[i] - prev_pos_[i]) / dt ;
     }
+}
+
+void VBDSolver::set_self_collision() {
+    if (detector_) return;
+    detector_ = std::make_unique<TriMeshCollisionDetector>(model_, adjacency_info_);
 }
 
 void VBDSolver::BuildAdjacencyInfo() {
