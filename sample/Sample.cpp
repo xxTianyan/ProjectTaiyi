@@ -65,6 +65,8 @@ void Sample::Update([[maybe_unused]]AppContext &ctx) {
 
     if (dbg_) dbg_->end_step();
 
+    OnUpdate(ctx);
+
     renderHelper_.Update(scene_->state_out());
 }
 

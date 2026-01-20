@@ -47,8 +47,11 @@ public:
 
     // api functions that need to be over-ride when inherited
     virtual void CreateWorld(AppContext& ctx);
-    virtual void Step([[maybe_unused]]const float dt);
+    virtual void Step([[maybe_unused]]float dt);
     virtual void BindShaders([[maybe_unused]]AppContext& ctx) {};
+
+    // call back function for updating
+    virtual void OnUpdate([[maybe_unused]]AppContext& ctx) {};
 
     // clean cpu resource
     virtual void CleanUp();

@@ -70,6 +70,7 @@ add_executable(Taiyi sample/main.cpp
         sample/SampleRegistry.cpp
         common/Application.cpp
         collision/BroadPhase.cpp
+        collision/TriMeshCollision.cpp
         solver/VBD/VBDSolver.cpp
         raylib_plugin/RenderHelper.cpp
 )
