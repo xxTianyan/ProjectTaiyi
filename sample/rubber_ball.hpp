@@ -27,7 +27,7 @@ public:
         m_ball_id = builder.add_sphere(.5f, 10, Vec3{0.0f,6.0f,0.0f}, .3f, "sphere");
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
-        solver_ = std::make_unique<VBDSolver>(&scene_->model_, 2, soft_bunny(), dbg_.get());
+        solver_ = std::make_unique<VBDSolver>(scene_->model_, 2, soft_bunny(), dbg_.get());
 
     };
     void BindShaders(AppContext &ctx) override {

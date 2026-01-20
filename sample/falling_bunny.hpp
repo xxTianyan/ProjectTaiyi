@@ -28,7 +28,7 @@ public:
         m_bunny_id_ = builder.add_bunny(3.0, 0.5);
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
-        solver_ = std::make_unique<VBDSolver>(&scene_->model_, 4, soft_bunny(), dbg_.get());
+        solver_ = std::make_unique<VBDSolver>(scene_->model_, 4, soft_bunny(), dbg_.get());
 
     };
     void BindShaders(AppContext &ctx) override {
