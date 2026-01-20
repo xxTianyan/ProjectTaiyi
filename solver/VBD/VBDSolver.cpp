@@ -504,8 +504,6 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
     const float mu_fric = 0.5f;    // start with 0.0 then enable
     const float eps_fric = 0.01f * 0.1; // length scale, need eigen length
 
-
-
     for (size_t vtex_id = 0; vtex_id < num_nodes; ++vtex_id) {
         auto& pos = state_in.particle_pos[vtex_id];
         auto& pos_new = state_out.particle_pos[vtex_id];

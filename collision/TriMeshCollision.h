@@ -6,6 +6,7 @@
 #define TAIYI_TRIMESHCOLLISION_H
 
 #include "Types.h"
+struct MModel;
 
 inline Vec3 minv(const Vec3& a,const Vec3& b){ return {std::min(a.x(),b.x()),std::min(a.y(),b.y()),std::min(a.z(),b.z())}; }
 inline Vec3 maxv(const Vec3& a,const Vec3& b){ return {std::max(a.x(),b.x()),std::max(a.y(),b.y()),std::max(a.z(),b.z())}; }
@@ -132,6 +133,35 @@ public:
         int tri_overflow = 0;   // not used in this minimal CPU version
         int edge_overflow = 0;
     };
+
+    explicit TriMeshCollisionDetector(const MModel& model, int vertex_pre_alloc = 8, int vertex_max_alloc = 256, int edge_pre_alloc = 8,
+                                      int edge_max_alloc = 256, int leaf_size = 1);
+
+    static void compute_offsets(const std::vector<int>& sizes, std::vector<int>& offsets);
+
+private:
+    const MModel& model_;
+    int v_pre_, v_max_;
+    int e_pre_, e_max_;
+    int leaf_size_;
+
+    std::vector<AABB> tri_boxes_;
+    std::vector<AABB> edge_boxes_;
+    AABBTree bvh_tris_;
+    AABBTree bvh_edges_;
+
+    // buffer sizes (Newton-style prealloc per primitive)
+    std::vector<int> v_buf_sizes_;
+    std::vector<int> e_buf_sizes_;
+
+    // filtering list (optional)
+    const std::vector<int>* vt_filter_list_ = nullptr;
+    const std::vector<int>* vt_filter_offsets_ = nullptr;
+
+    // snapshot of positions used in the last compute (copy for simplicity; you can store a pointer/span instead)
+    std::vector<Vec3> positions_;
+
+    CollisionInfo info_;
 
 
 };

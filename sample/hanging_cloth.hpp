@@ -62,7 +62,6 @@ inline void DebugDrawAABBTree(const AABBTree& tree, const AABBTreeDrawSettings& 
 }
 
 
-
 class HangingCloth final : public Sample {
 
 public:
@@ -70,7 +69,7 @@ public:
     HangingCloth() {
         max_ticks_per_frame_ = 8;
         substeps_ = 4;
-        leaf_size_ = 1;
+        leaf_size_ = 16;
     }
 
     void CreateWorld([[maybe_unused]]AppContext &ctx) override {
@@ -85,12 +84,11 @@ public:
         build(scene_->state_in().particle_pos);
     };
 
-
     void Render(AppContext &ctx) override {
         AABBTreeDrawSettings dbgTriTree;
         dbgTriTree.enabled = true;
         dbgTriTree.leavesOnly = false;   // 先画 internal + leaf 看整体分割
-        dbgTriTree.maxDepth = 5;        // 不要太大
+        dbgTriTree.maxDepth = -1;        // 不要太大
         dbgTriTree.drawEvery = 1;
         dbgTriTree.colorByDepth = true;
 
@@ -112,7 +110,6 @@ public:
 
         EndMode3D();
     };
-
 
     void BindShaders(AppContext &ctx) override {
         ctx.shader_manager->LoadShaderProgram("cloth", "../resources/shaders/cloth.vs", "../resources/shaders/cloth.fs");
@@ -141,7 +138,6 @@ public:
         refit(scene_->state_in().particle_pos);
     }
 
-
 private:
     size_t m_cloth_id_{};
     std::vector<AABB> tri_boxes_;
@@ -150,7 +146,7 @@ private:
 
     void compute_tri_aabbs(const std::vector<Vec3>& pos) {
         for (size_t i = 0; i < scene_->model_.tris.size(); ++i) {
-            const auto& tv = scene_->model_.tris[i].vertices;
+            const auto& tv = scene_->model_.render_tris[i].vertices;
             AABB b;
             b.expand(pos[tv[0]]);
             b.expand(pos[tv[1]]);
