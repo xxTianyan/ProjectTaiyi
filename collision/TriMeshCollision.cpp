@@ -4,6 +4,7 @@
 
 #include "TriMeshCollision.h"
 
+#include "AdjacencyCSR.hpp"
 #include "Model.h"
 
 void AABBTree::build(const std::vector<AABB> &prim_boxes, const int leaf_size) {
@@ -105,8 +106,8 @@ AABB AABBTree::refit_recursive(const int node_id) {
     }
 }
 
-TriMeshCollisionDetector::TriMeshCollisionDetector(const MModel &model, int vertex_pre_alloc, int vertex_max_alloc, int edge_pre_alloc, int edge_max_alloc, int leaf_size)
-    : model_(model), v_pre_(vertex_pre_alloc), v_max_(vertex_max_alloc),
+TriMeshCollisionDetector::TriMeshCollisionDetector(const MModel &model, const ForceElementAdjacencyInfo& adj, const int vertex_pre_alloc, const int vertex_max_alloc, const int edge_pre_alloc, const int edge_max_alloc, const int leaf_size)
+    : model_(model), adj_(adj), v_pre_(vertex_pre_alloc), v_max_(vertex_max_alloc),
       e_pre_(edge_pre_alloc), e_max_(edge_max_alloc), leaf_size_(leaf_size) {
 
     const int V = static_cast<int>(model_.num_particles);
@@ -116,7 +117,7 @@ TriMeshCollisionDetector::TriMeshCollisionDetector(const MModel &model, int vert
     tri_boxes_.resize(T);
     edge_boxes_.resize(E);
 
-    // init buffer sizes / offsets (Newton style: uniform per primitive)
+    // init buffer sizes / offsets
     v_buf_sizes_.assign(V, v_pre_);
     e_buf_sizes_.assign(E, e_pre_);
     compute_offsets(v_buf_sizes_, info_.vertex_colliding_triangles_offsets);
@@ -128,10 +129,169 @@ TriMeshCollisionDetector::TriMeshCollisionDetector(const MModel &model, int vert
 
     info_.vertex_colliding_triangles_count.assign(V, 0);
     info_.vertex_colliding_triangles_min_dist.assign(V, 0.f);
+    info_.triangle_colliding_vertices_min_dist.assign(T, 0.f);
     info_.edge_colliding_edges_count.assign(E, 0);
     info_.edge_colliding_edges_min_dist.assign(E, 0.f);
+}
+
+void TriMeshCollisionDetector::set_vertex_triangle_filter_list(const std::vector<int> *list,
+    const std::vector<int> *offsets) {
+    vt_filter_list_ = list;
+    vt_filter_offsets_ = offsets;
+}
+
+void TriMeshCollisionDetector::build(const std::vector<Vec3> &pos) {
+    compute_tri_aabbs(pos);
+    compute_edge_aabbs(pos);
+    bvh_tris_.build(tri_boxes_, leaf_size_);
+    bvh_edges_.build(edge_boxes_, leaf_size_);
+}
+
+void TriMeshCollisionDetector::refit(const std::vector<Vec3> &pos) {
+    positions_ = pos;
+    compute_tri_aabbs(pos);
+    compute_edge_aabbs(pos);
+    bvh_tris_.refit(tri_boxes_);
+    bvh_edges_.refit(edge_boxes_);
+}
+
+void TriMeshCollisionDetector::compute_particle_conservative_bounds() {
+    const size_t V = particle_conservative_bounds_.size();
+    for (size_t v = 0; v < V; ++v) {
+        float min_dist = std::min(particle_contact_margin, info_.vertex_colliding_triangles_min_dist[v]);
+
+        // bound from neighbor triangles (incident faces)
+        {
+            const uint32_t fs = adj_.vertex_faces.begin(v);
+            const uint32_t fe = adj_.vertex_faces.end  (v);
+            for (uint32_t i = fs; i < fe; ++i) {
+                const uint32_t packed = adj_.vertex_faces.incidents[i];
+                const uint32_t tri_id = AdjacencyCSR::unpack_id(packed);
+                min_dist = std::min(min_dist, info_.vertex_colliding_triangles_min_dist[tri_id]);
+            }
+        }
+
+        // bound from neighbor edges (incident bending edges)
+        {
+            const uint32_t es = adj_.vertex_edges.begin(v);
+            const uint32_t ee = adj_.vertex_edges.end  (v);
+            for (uint32_t i = es; i < ee; ++i) {
+                const uint32_t packed = adj_.vertex_edges.incidents[i];
+                const uint32_t edge_id = AdjacencyCSR::unpack_id(packed);
+                const uint32_t order   = AdjacencyCSR::unpack_order(packed);
+
+                // Newton: only if vertex is actually on the edge segment endpoints (v1/v2)
+                if (order == 2u || order == 3u) {
+                    min_dist = std::min(min_dist, info_.edge_colliding_edges_min_dist[edge_id]);
+                }
+            }
+        }
+
+        particle_conservative_bounds_[v] = conservative_bound_relaxation * min_dist;
+    }
+}
 
 
+void TriMeshCollisionDetector::vertex_triangle_collision_detection(const float max_query_radius,
+                                                                   const float min_query_radius,
+                                                                   const std::vector<Vec3> *min_distance_filtering_ref_pos) {
+    const int V = static_cast<int>(model_.num_particles);
+    info_.vertex_overflow = 0;
+    std::fill(info_.vertex_colliding_triangles.begin(), info_.vertex_colliding_triangles.end(), -1);
+
+    for (int v = 0; v < V; ++v) {
+        const Vec3 pv = positions_[v];
+        AABB q;
+        q.lo = {pv.x() - max_query_radius, pv.y() - max_query_radius, pv.z() - max_query_radius};
+        q.hi = {pv.x() + max_query_radius, pv.y() + max_query_radius, pv.z() + max_query_radius};
+
+        int off = info_.vertex_colliding_triangles_offsets[v];
+        int cap = info_.vertex_colliding_triangles_offsets[v+1] - off;
+
+        int count = 0;
+        float min_vertex_to_tri_dist = max_query_radius;
+        float min_tri_to_vertex_dist = max_query_radius;
+
+        bvh_tris_.query_aabb(q, [&](const int tri_id){
+            const auto& tri = model_.tris[static_cast<size_t>(tri_id)].vertices;
+            const auto t1 = tri[0], t2 = tri[1], t3 = tri[2];
+
+            // 1) adjacency skip
+            if (vertex_adjacent_to_triangle(static_cast<VertexID>(v), t1, t2, t3))
+                return;
+
+            // 2) optional per-vertex filtering list (sorted)
+            if (vt_filter_list_ && vt_filter_offsets_) {
+                const int fs = (*vt_filter_offsets_)[v];
+                const int fe = (*vt_filter_offsets_)[v+1];
+                if (fe > fs) {
+                    const int first = (*vt_filter_list_)[fs];
+                    const int last  = (*vt_filter_list_)[fe-1];
+                    if (tri_id >= first && tri_id <= last) {
+                        const int idx = binary_search_first_greater(*vt_filter_list_, tri_id, fs, fe);
+                        if (idx > fs && (*vt_filter_list_)[idx-1] == tri_id)
+                            return;
+                    }
+                }
+            }
+
+            // 3) narrow-phase distance at current pose
+            const Vec3 a = positions_[t1], b = positions_[t2], c = positions_[t3];
+            const Vec3 cp = closest_point_on_triangle(a,b,c,pv);
+            const float dist = (cp - pv).norm();
+
+            // 4) rest-shape exclusion
+            if (min_distance_filtering_ref_pos && min_query_radius > 0.f) {
+                const auto& ref = *min_distance_filtering_ref_pos;
+                const Vec3 ar = ref[t1], br = ref[t2], cr = ref[t3], vr = ref[v];
+                const Vec3 cpr = closest_point_on_triangle(ar, br, cr, vr);
+                if (const float dist_ref = (cpr - vr).norm(); dist_ref < min_query_radius) return;
+            }
+
+            if (dist < max_query_radius) {
+                min_vertex_to_tri_dist = std::min(min_vertex_to_tri_dist, dist);
+                min_tri_to_vertex_dist = std::min(min_tri_to_vertex_dist, dist);
+                info_.triangle_colliding_vertices_min_dist[tri_id] = min_tri_to_vertex_dist;
+                if (count < cap) {
+                    info_.vertex_colliding_triangles[2 * (off + count) + 0] = v;
+                    info_.vertex_colliding_triangles[2 * (off + count) + 1] = tri_id;
+                }else {
+                    info_.vertex_overflow = 1;
+                }
+                ++count;
+            }
+        });
+
+        info_.vertex_colliding_triangles_count[v] = count;
+        info_.vertex_colliding_triangles_min_dist[v] = min_vertex_to_tri_dist;
+    }
+}
+
+void TriMeshCollisionDetector::ensure_capacity_for_vertex_buffers() {
+    if (!info_.vertex_overflow) return;
+    // conservative strategy: double all, clamp to max
+    for (auto& s : v_buf_sizes_) s = std::min(s * 2, v_max_);
+    compute_offsets(v_buf_sizes_, info_.vertex_colliding_triangles_offsets);
+    info_.vertex_colliding_triangles.assign(2 * info_.vertex_colliding_triangles_offsets.back(), -1);
+    info_.vertex_overflow = 0;
+}
+
+void TriMeshCollisionDetector::collision_detection(const State &state_in) {
+    refit(state_in.particle_pos);
+    vertex_triangle_collision_detection(particle_contact_margin, particle_rest_shape_contact_exclusion_radius,
+                                        &model_.particle_pos0);
+
+    /*if (info_.vertex_overflow) {
+        ensure_capacity_for_vertex_buffers();
+        vertex_triangle_collision_detection(particle_self_contact_margin, particle_rest_shape_contact_exclusion_radius,
+                                        &model_.particle_pos0);
+    }*/
+
+    // edge ...
+
+    // init pos_prev_collision_detection
+    pos_prev_collision_detection_ = state_in.particle_pos;
+    compute_particle_conservative_bounds();
 }
 
 void TriMeshCollisionDetector::compute_offsets(const std::vector<int> &sizes, std::vector<int> &offsets) {
@@ -140,4 +300,29 @@ void TriMeshCollisionDetector::compute_offsets(const std::vector<int> &sizes, st
     for (size_t i = 0; i < sizes.size(); ++i)
         offsets[i+1] = offsets[i] + sizes[i];
 }
+
+void TriMeshCollisionDetector::compute_tri_aabbs(const std::vector<Vec3> &pos) {
+    for (size_t i = 0; i < model_.tris.size(); ++i) {
+        const auto& tv = model_.tris[i].vertices;
+        AABB b;
+        b.expand(pos[tv[0]]);
+        b.expand(pos[tv[1]]);
+        b.expand(pos[tv[2]]);
+        tri_boxes_[i] = b;
+    }
+}
+
+void TriMeshCollisionDetector::compute_edge_aabbs(const std::vector<Vec3> &pos) {
+    for (size_t i = 0; i < model_.edges.size(); ++i) {
+        // Newton: endpoints are vertices[2], vertices[3]
+        VertexID v1 = model_.edges[i].vertices[2];
+        VertexID v2 = model_.edges[i].vertices[3];
+        AABB b;
+        b.expand(pos[v1]);
+        b.expand(pos[v2]);
+        edge_boxes_[i] = b;
+    }
+}
+
+
 

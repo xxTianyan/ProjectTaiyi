@@ -101,7 +101,7 @@ void Application::DrawAppUI_() {
     // Pause / Reset / Reload shaders
     if (ImGui::Checkbox("Paused", &ctx_.paused)) {
     }
-    if (ImGui::Button("Reset (Reload Sample)")) {
+    if (ImGui::Button("Reload Sample")) {
         RequestReloadSample_();
     }
     if (ImGui::Button("Wire Mode")) {
@@ -133,6 +133,8 @@ void Application::DrawAppUI_() {
     } else {
         ImGui::Text("No samples registered.");
     }
+
+
 
     ImGui::End();
 

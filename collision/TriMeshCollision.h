@@ -6,6 +6,7 @@
 #define TAIYI_TRIMESHCOLLISION_H
 
 #include "Types.h"
+struct ForceElementAdjacencyInfo;
 struct MModel;
 
 inline Vec3 minv(const Vec3& a,const Vec3& b){ return {std::min(a.x(),b.x()),std::min(a.y(),b.y()),std::min(a.z(),b.z())}; }
@@ -65,7 +66,8 @@ public:
                     int prim_id = prim_indices_[first + i];
                     on_hit_prim(prim_id);
                 }
-            } else {
+            }
+            else {
                 stack[sp++] = left;
                 stack[sp++] = right;
             }
@@ -128,19 +130,59 @@ public:
         std::vector<int> edge_colliding_edges_count;   // size = edge_count
         std::vector<float> edge_colliding_edges_min_dist;
 
+        // per-triangle: min distance to any colliding vertex , currently no triangle colliding data
+        std::vector<float> triangle_colliding_vertices_min_dist; // size = tri_count
+
         // overflow flags like Newton (0/1)
         int vertex_overflow = 0;
         int tri_overflow = 0;   // not used in this minimal CPU version
         int edge_overflow = 0;
     };
 
-    explicit TriMeshCollisionDetector(const MModel& model, int vertex_pre_alloc = 8, int vertex_max_alloc = 256, int edge_pre_alloc = 8,
-                                      int edge_max_alloc = 256, int leaf_size = 1);
+    explicit TriMeshCollisionDetector(const MModel& model, const ForceElementAdjacencyInfo& adj, int vertex_pre_alloc = 8, int vertex_max_alloc = 64, int edge_pre_alloc = 8,
+                                      int edge_max_alloc = 64, int leaf_size = 1);
+
+    void vertex_triangle_collision_detection(float max_query_radius, float min_query_radius = 0.0f,
+        const std::vector<Vec3>* min_distance_filtering_ref_pos = nullptr);
+
+    /*void edge_edge_collision_detection(float max_query_radius, float min_query_radius = 0.0f,
+        const std::vector<Vec3>* min_distance_filtering_ref_pos = nullptr);*/
+
+    void collision_detection(const State& state_in);
+
+    // Optional filtering lists (must be sorted per-vertex/per-edge if you want binary search)
+    void set_vertex_triangle_filter_list(const std::vector<int>* list, const std::vector<int>* offsets);
+
+public:
+    // max query radius, margin of aabb box of vertex
+    float particle_contact_margin = 0.02f;
+    // delete primitives that very close to target vertex in rest pose
+    float particle_rest_shape_contact_exclusion_radius = 0.2f;
+    // parameter to scale conservative bound
+    float conservative_bound_relaxation = 0.1f;
+
+private:
+
+    void compute_tri_aabbs(const std::vector<Vec3>& pos);
+
+    void compute_edge_aabbs(const std::vector<Vec3>& pos);
+
+    void ensure_capacity_for_vertex_buffers();
 
     static void compute_offsets(const std::vector<int>& sizes, std::vector<int>& offsets);
 
+    // Build trees from current positions
+    void build(const std::vector<Vec3>& pos);
+
+    void rebuild(const std::vector<Vec3>& pos) { build(pos);}
+
+    void refit(const std::vector<Vec3>& pos);
+
+    void compute_particle_conservative_bounds();
+
 private:
     const MModel& model_;
+    const ForceElementAdjacencyInfo& adj_;
     int v_pre_, v_max_;
     int e_pre_, e_max_;
     int leaf_size_;
@@ -150,9 +192,13 @@ private:
     AABBTree bvh_tris_;
     AABBTree bvh_edges_;
 
-    // buffer sizes (Newton-style prealloc per primitive)
+    // buffer sizes (Newton-style pre-alloc per primitive)
     std::vector<int> v_buf_sizes_;
     std::vector<int> e_buf_sizes_;
+
+    // Penetration-free state
+    std::vector<Vec3>  pos_prev_collision_detection_;
+    std::vector<float> particle_conservative_bounds_;
 
     // filtering list (optional)
     const std::vector<int>* vt_filter_list_ = nullptr;
@@ -163,8 +209,68 @@ private:
 
     CollisionInfo info_;
 
-
 };
+
+// topology filtering
+inline bool vertex_adjacent_to_triangle(const VertexID v, const VertexID t1, const VertexID t2, const VertexID t3) {
+    // Minimal: skip if v is on the triangle.
+    return v == t1 || v == t2 || v == t3;
+}
+
+inline Vec3 closest_point_on_triangle(const Vec3& a,const Vec3& b,const Vec3& c,const Vec3& p) {
+    const Vec3 ab = b-a;
+    const Vec3 ac = c-a;
+    // From "Real-Time Collision Detection" style barycentric region tests
+    const Vec3 ap = p-a;
+    const float d1 = ab.dot(ap);
+    const float d2 = ac.dot(ap);
+    if (d1 <= 0.f && d2 <= 0.f) return a;
+
+    const Vec3 bp = p-b;
+    const float d3 = ab.dot(bp);
+    const float d4 = ac.dot(bp);
+    if (d3 >= 0.f && d4 <= d3) return b;
+
+    const float vc = d1*d4 - d3*d2;
+    if (vc <= 0.f && d1 >= 0.f && d3 <= 0.f) {
+        float v = d1 / (d1 - d3);
+        return a + ab * v;
+    }
+
+    const Vec3 cp = p-c;
+    const float d5 = ab.dot(cp);
+    const float d6 = ac.dot(cp);
+    if (d6 >= 0.f && d5 <= d6) return c;
+
+    const float vb = d5*d2 - d1*d6;
+    if (vb <= 0.f && d2 >= 0.f && d6 <= 0.f) {
+        const float w = d2 / (d2 - d6);
+        return a + ac * w;
+    }
+
+    const float va = d3*d6 - d5*d4;
+    if (va <= 0.f && (d4 - d3) >= 0.f && (d5 - d6) >= 0.f) {
+        const Vec3 bc = c-b;
+        const float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return b + bc * w;
+    }
+
+    const float denom = 1.f / (va + vb + vc);
+    const float v = vb * denom;
+    const float w = vc * denom;
+    return a + ab * v + ac * w;
+}
+
+inline int binary_search_first_greater(const std::vector<int>& arr, int value, int begin, int end) {
+    // returns first index i in [begin,end) s.t. arr[i] > value
+    int l = begin, r = end;
+    while (l < r) {
+        int m = (l + r) >> 1;
+        if (arr[m] <= value) l = m + 1;
+        else r = m;
+    }
+    return l;
+}
 
 
 
