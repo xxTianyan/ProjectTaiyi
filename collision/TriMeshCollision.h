@@ -5,12 +5,19 @@
 #ifndef TAIYI_TRIMESHCOLLISION_H
 #define TAIYI_TRIMESHCOLLISION_H
 
+#include "raylib.h"
 #include "Types.h"
 struct ForceElementAdjacencyInfo;
 struct MModel;
 
 inline Vec3 minv(const Vec3& a,const Vec3& b){ return {std::min(a.x(),b.x()),std::min(a.y(),b.y()),std::min(a.z(),b.z())}; }
 inline Vec3 maxv(const Vec3& a,const Vec3& b){ return {std::max(a.x(),b.x()),std::max(a.y(),b.y()),std::max(a.z(),b.z())}; }
+
+struct AABBTreeDrawSettings {
+    bool enabled = true;
+    bool leavesOnly = false;
+    int  maxDepth = 32;      // -1 means unlimited
+};
 
 struct AABB {
     Vec3 lo{ +std::numeric_limits<float>::infinity(),
@@ -49,7 +56,6 @@ public:
 
     // After user updates prim boxes array in-place, call refit to refresh internal node boxes
     void refit(const std::vector<AABB>& prim_boxes);
-
 
     template<class F>
     void query_aabb(const AABB& q, F&& on_hit_prim) const {
@@ -144,7 +150,9 @@ public:
 
     void collision_detection(const State& state_in);
 
-    Vec3 apply_conservative_bounds(const VertexID v, const Vec3& inertia) const;
+    [[nodiscard]] Vec3 apply_conservative_bounds(VertexID v, const Vec3& inertia) const;
+
+    void draw_triangle_bvh(const AABBTreeDrawSettings& s) const;
 
     // Optional filtering lists (must be sorted per-vertex/per-edge if you want binary search)
     void set_vertex_triangle_filter_list(const std::vector<int>* list, const std::vector<int>* offsets);
@@ -271,8 +279,28 @@ inline int binary_search_first_greater(const std::vector<int>& arr, int value, i
     return l;
 }
 
+// Vec3 -> raylib Vector3
+inline Vector3 ToRL(const Vec3& v) { return Vector3{v.x(), v.y(), v.z()}; }
 
+//  AABB -> raylib BoundingBox
+inline BoundingBox ToBBox(const AABB& b) {
+    BoundingBox bb;
+    bb.min = ToRL(b.lo);
+    bb.max = ToRL(b.hi);
+    return bb;
+}
 
+inline void DrawAABBWire(const AABB& b, Color c) {
+    DrawBoundingBox(ToBBox(b), c);
+}
+
+inline Color ColorByDepth(int depth) {
+    // 简单做法：深度越深越亮（不指定复杂调色）
+    // 注意 raylib Color 分量 0..255
+    int v = 80 + (depth * 12);
+    if (v > 255) v = 255;
+    return Color{static_cast<unsigned char>(v), static_cast<unsigned char>(v), static_cast<unsigned char>(v), 255};
+}
 
 
 #endif //TAIYI_TRIMESHCOLLISION_H

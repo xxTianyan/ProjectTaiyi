@@ -50,6 +50,12 @@ public:
                                                 const Vec3 &plane_n_unit,  float radius,  float ke,
                                                 float kd_ratio, float friction_mu, float friction_epsilon, float dt,Vec3& f_out, Mat3& H_out) const;
 
+    // detector relevant
+    void draw_triangle_bvh(const AABBTreeDrawSettings& s) const {
+        if (detector_)
+            detector_->draw_triangle_bvh(s);
+    };
+
 private:
 
     void BuildAdjacencyInfo();

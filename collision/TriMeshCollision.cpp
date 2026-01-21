@@ -316,6 +316,17 @@ Vec3 TriMeshCollisionDetector::apply_conservative_bounds(const VertexID v, const
     return inertia;
 }
 
+void TriMeshCollisionDetector::draw_triangle_bvh(const AABBTreeDrawSettings &s) const {
+    if (!s.enabled) return;
+
+    bvh_tris_.traverse([&](int /*nodeId*/, const AABBTree::Node& nd, int depth) {
+        if (s.maxDepth >= 0 && depth > s.maxDepth) return;
+        if (s.leavesOnly && !nd.is_leaf) return;
+        Color c = ColorByDepth(depth);
+        DrawAABBWire(nd.box, c);
+    });
+}
+
 void TriMeshCollisionDetector::compute_offsets(const std::vector<int> &sizes, std::vector<int> &offsets) {
     offsets.resize(sizes.size() + 1);
     offsets[0] = 0;
