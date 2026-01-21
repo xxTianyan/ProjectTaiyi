@@ -216,19 +216,32 @@ private:
 
         ImGui::Text("Frame: %zu", stats.frame_id);
 
-        // 辅助 lambda：显示带颜色的数值
-        auto StatRow = [](const char* name, float val, float limit, bool is_min_limit) {
+        auto StatRow = []<typename T0>(const char* name, T0 val, auto limit, bool is_min_limit) {
+            // 1. 逻辑判断：通用比较，适用于 int 和 float
             bool bad = is_min_limit ? (val < limit) : (val > limit);
+
             ImGui::Text("%s:", name);
             ImGui::SameLine(300);
-            if (bad) ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "%.4f (BAD)", val);
-            else     ImGui::Text("%.4f", val);
+
+            // 2. 根据 bad 状态设置颜色
+            if (bad) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
+
+            // 3. 编译期类型分流：根据 val 类型选择打印格式
+            // 使用 if constexpr 保证编译器不会抱怨类型不匹配
+            if constexpr (std::is_floating_point_v<T0>) {
+                ImGui::Text("%.4f%s", val, bad ? " (BAD)" : "");
+            } else {
+                ImGui::Text("%d%s", val, bad ? " (BAD)" : "");
+            }
+
+            if (bad) ImGui::PopStyleColor();
         };
 
         StatRow("Min Jacobian", stats.minJ, 0.1f, true);
         StatRow("Min Volume", stats.minSignedVol, 0.0f, true);
         StatRow("Max Penetration", stats.maxPenetration, 1e-3f, false);
         StatRow("Max Dx", stats.maxDx, 1.0f, false);
+        StatRow("Collision Particles", stats.collision_particles, 0, true);
     }
 
     void DrawSettings(SolverDebugger& debugger) {

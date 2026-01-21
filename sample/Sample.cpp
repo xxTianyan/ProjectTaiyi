@@ -85,8 +85,11 @@ void Sample::Render([[maybe_unused]]AppContext &ctx) {
 }
 
 void Sample::DrawUI([[maybe_unused]]AppContext &ctx) {
+
     if (dbg_)
         dbg_ui_.Render(*dbg_);
+
+
 }
 
 void Sample::Reset([[maybe_unused]]AppContext &ctx) {

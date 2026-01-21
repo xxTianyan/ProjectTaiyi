@@ -11,11 +11,16 @@
 #include "Types.h"
 #include <chrono>
 
+inline std::size_t count_nonzero(const std::vector<char>& v) {
+    return std::ranges::count_if(v, [](const unsigned char c) { return c != 0; });
+}
+
+
 struct TimerStat {
     double sum_ms = 0.0;
     uint32_t count = 0;
 
-    double avg_ms() const { return count ? (sum_ms / static_cast<double>(count)) : 0.0; }
+    [[nodiscard]] double avg_ms() const { return count ? (sum_ms / static_cast<double>(count)) : 0.0; }
 };
 
 
@@ -42,7 +47,7 @@ struct ScopeTimer {
 // --- 配置结构 ---
 struct DebugTriggerConfig {
     bool break_on_nan = true;         // 遇到 NaN 立刻暂停
-    bool break_on_inversion = true;   // 遇到翻转 (Signed Vol < 0) 立刻暂停
+    bool break_on_inversion = false;   // 遇到翻转 (Signed Vol < 0) 立刻暂停
     bool break_on_small_J = false;      // 遇到 J 小于 0.1 触发
     float dx_limit_scale = 0.5f;      // 允许稍大的位移，过于灵敏会频繁打断
     float max_pen_trigger = .1f;     // 穿透深度阈值
@@ -69,6 +74,9 @@ struct DebugFrameStats {
     float maxPenetration = -std::numeric_limits<float>::infinity();
     float maxDx = 0.0f;
 
+    // simulation state
+    unsigned int collision_particles = 0;
+
     // --- 性能统计 (毫秒) ---
     TimerStat time_total_physical_frame;     // 整帧耗时
     TimerStat time_single_substep;   // 所有子步总耗时
@@ -82,7 +90,7 @@ struct DebugFrameStats {
     std::string trigger_msg;        // 详细描述
     bool recorded = false;
 
-    // 现场数据 snapshot (导致错误的那个点的物理量)
+    // 现场数据 snapshot
     std::vector<std::pair<std::string, Vec3>> component_forces;
     std::vector<std::pair<std::string, Mat3>> component_hessians;
     Vec3 trigger_force{};
@@ -106,6 +114,7 @@ public:
 
     explicit SolverDebugger(const size_t history_capacity = 200) {
         frame_history_.resize(history_capacity);
+        collision_particles_flag_.resize(10000, 0);
     }
     ~SolverDebugger() = default;
 
@@ -132,23 +141,23 @@ public:
 
     // 在 Solver Step 结束后调用
     void end_step() {
+
+        // record some information that run through whole current frame and clear relevant flag vector
+        current_frame_.collision_particles = count_nonzero(collision_particles_flag_);
+        std::ranges::fill(collision_particles_flag_, 0);
+
         if (state_ == RunState::Frozen) return; // 没跑，不用记录
 
         // 如果在计算过程中触发了 Trigger
-        if (triggered_this_frame_.load()) {
+        if (triggered_this_frame_.load() || step_once_armed_) {
             state_ = RunState::Frozen; // 锁死
             step_once_armed_ = false;  // 取消单步
         }
 
-        else if (step_once_armed_) {
-            // 如果是单步执行且没报错，执行完这一次后，切回 Frozen
-            state_ = RunState::Frozen;
-            step_once_armed_ = false;
-        }
 
         // 写入历史 (Ring Buffer)
-        const size_t ptr = frame_id_ % frame_history_.size();
-        frame_history_[ptr] = current_frame_;
+        /*const size_t ptr = frame_id_ % frame_history_.size();
+        frame_history_[ptr] = current_frame_;*/
     }
 
     // UI 按钮: "Step One Frame"
@@ -167,8 +176,8 @@ public:
         state_ = RunState::Frozen;
     }
 
-    bool is_frozen() const { return state_ == RunState::Frozen; }
-    const DebugFrameStats& get_current_stats() const { return current_frame_; }
+    [[nodiscard]] bool is_frozen() const { return state_ == RunState::Frozen; }
+    [[nodiscard]] const DebugFrameStats& get_current_stats() const { return current_frame_; }
     [[nodiscard]] bool stop_requested() const { return triggered_this_frame_.load();}
 
     // ---- Timer -----
@@ -179,7 +188,7 @@ public:
     ScopeTimer timer_gradient() { return ScopeTimer(&current_frame_.time_gradient_update); }
 
     // 通用接口，如果你想计时一些临时变量
-    ScopeTimer timer_custom(TimerStat* target_ptr) { return ScopeTimer(target_ptr); }
+    static ScopeTimer timer_custom(TimerStat* target_ptr) { return ScopeTimer(target_ptr); }
 
     // --- Solver 内部检测函数 (支持多线程调用) ---
 
@@ -255,11 +264,13 @@ public:
         current_frame_.recorded = true;
     }
 
+    void record_collision(const VertexID id){ collision_particles_flag_[id] = 1;}
+
     // --- Dump 功能 ---
 
     // 导出历史记录到 JSON 格式
     void dump_history_json(const std::string& filepath) const {
-        std::ofstream out(filepath);
+        /*std::ofstream out(filepath);
         out << "{\n  \"frames\": [\n";
 
         // 遍历 Ring Buffer (按时间顺序)
@@ -278,7 +289,7 @@ public:
                 << ", \"trigger\": \"" << static_cast<int>(frame.trigger_reason) << "\" "
                 << "}" << (i < count - 1 ? "," : "") << "\n";
         }
-        out << "  ]\n}\n";
+        out << "  ]\n}\n";*/
     }
 
     // --- 重置功能 ---
@@ -300,11 +311,11 @@ public:
         // 5. 清空历史记录 (Ring Buffer)
         // 我们不 resize vector (避免内存分配开销)，而是将内容恢复为初始默认值
         // 这样 UI 在读取历史时，不会读到上一次运行遗留的“幽灵数据”
-        for (auto& frame : frame_history_) {
+        /*for (auto& frame : frame_history_) {
             // 这里使用 DebugFrameStats 的默认构造函数覆盖旧数据
             // 默认构造会将 minJ 设为 infinity，maxPen 设为负无穷等安全值
             frame = DebugFrameStats{};
-        }
+        }*/
 
         printf("[Debugger] System Reset. State: RUNNING, Frame: 0.\n");
     }
@@ -332,7 +343,6 @@ private:
         }
     }
 
-
     RunState state_ = RunState::Running;
     bool step_once_armed_ = false;
     size_t frame_id_ = 0;
@@ -342,6 +352,9 @@ private:
 
     DebugFrameStats current_frame_;
     std::vector<DebugFrameStats> frame_history_;
+
+    // recording things
+    std::vector<char> collision_particles_flag_;
 };
 
 

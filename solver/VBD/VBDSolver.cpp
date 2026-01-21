@@ -412,8 +412,6 @@ void VBDSolver::evaluate_static_plane_particle_contact(const Vec3 &x, const Vec3
         return;
     }
 
-    dbg_->record_collision();
-
     // Optional: clamp penetration to avoid extreme impulses when tunneling
     d = std::min(d, 0.01f); // tune in length units (or 0.2*avg_edge_length)
 
@@ -587,6 +585,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
         // debug
         if (dbg_) {
             auto penetration = std::max(-(pos.y()-radius), 0.0f);
+            if (penetration > 0) dbg_->record_collision(vtex_id);
             dbg_->inspect_vertex(vtex_id, force, hessian, dx.norm(), penetration, .1);
             if (dbg_->stop_requested())
                 dbg_->record_force_hessian(inertia_force, dihedral_angle_force,
