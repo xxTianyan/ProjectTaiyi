@@ -11,8 +11,6 @@
 #include <utility>  // std::swap
 #include "Model.h"
 #include "Types.h"
-struct MMaterial;
-
 
 class Scene {
 public:
