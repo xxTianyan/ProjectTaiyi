@@ -132,6 +132,13 @@ TriMeshCollisionDetector::TriMeshCollisionDetector(const MModel &model, const Fo
     info_.triangle_colliding_vertices_min_dist.assign(T, 0.f);
     info_.edge_colliding_edges_count.assign(E, 0);
     info_.edge_colliding_edges_min_dist.assign(E, 0.f);
+
+    pos_prev_collision_detection_.resize(V);
+    particle_conservative_bounds_.resize(V);
+
+    // build tree
+    build(model_.particle_pos0);
+
 }
 
 void TriMeshCollisionDetector::set_vertex_triangle_filter_list(const std::vector<int> *list,
@@ -148,7 +155,6 @@ void TriMeshCollisionDetector::build(const std::vector<Vec3> &pos) {
 }
 
 void TriMeshCollisionDetector::refit(const std::vector<Vec3> &pos) {
-    positions_ = pos;
     compute_tri_aabbs(pos);
     compute_edge_aabbs(pos);
     bvh_tris_.refit(tri_boxes_);
@@ -171,8 +177,8 @@ void TriMeshCollisionDetector::compute_particle_conservative_bounds() {
             }
         }
 
-        // bound from neighbor edges (incident bending edges)
-        {
+        // bound from neighbor edges (incident bending edges), currently dismiss
+        /*{
             const uint32_t es = adj_.vertex_edges.begin(v);
             const uint32_t ee = adj_.vertex_edges.end  (v);
             for (uint32_t i = es; i < ee; ++i) {
@@ -185,22 +191,25 @@ void TriMeshCollisionDetector::compute_particle_conservative_bounds() {
                     min_dist = std::min(min_dist, info_.edge_colliding_edges_min_dist[edge_id]);
                 }
             }
-        }
+        }*/
 
         particle_conservative_bounds_[v] = conservative_bound_relaxation * min_dist;
     }
 }
 
 
-void TriMeshCollisionDetector::vertex_triangle_collision_detection(const float max_query_radius,
-                                                                   const float min_query_radius,
+void TriMeshCollisionDetector::vertex_triangle_collision_detection(const std::vector<Vec3>& pos,
+                                                                   const float max_query_radius,
+                                                                   const float rest_exclusion_radius,
                                                                    const std::vector<Vec3> *min_distance_filtering_ref_pos) {
     const int V = static_cast<int>(model_.num_particles);
     info_.vertex_overflow = 0;
-    std::fill(info_.vertex_colliding_triangles.begin(), info_.vertex_colliding_triangles.end(), -1);
+    std::ranges::fill(info_.vertex_colliding_triangles, -1);
+    std::ranges::fill(info_.triangle_colliding_vertices_min_dist, max_query_radius);
+
 
     for (int v = 0; v < V; ++v) {
-        const Vec3 pv = positions_[v];
+        const Vec3& pv = pos[v];
         AABB q;
         q.lo = {pv.x() - max_query_radius, pv.y() - max_query_radius, pv.z() - max_query_radius};
         q.hi = {pv.x() + max_query_radius, pv.y() + max_query_radius, pv.z() + max_query_radius};
@@ -210,7 +219,6 @@ void TriMeshCollisionDetector::vertex_triangle_collision_detection(const float m
 
         int count = 0;
         float min_vertex_to_tri_dist = max_query_radius;
-        float min_tri_to_vertex_dist = max_query_radius;
 
         bvh_tris_.query_aabb(q, [&](const int tri_id){
             const auto& tri = model_.tris[static_cast<size_t>(tri_id)].vertices;
@@ -236,22 +244,22 @@ void TriMeshCollisionDetector::vertex_triangle_collision_detection(const float m
             }
 
             // 3) narrow-phase distance at current pose
-            const Vec3 a = positions_[t1], b = positions_[t2], c = positions_[t3];
+            const Vec3 &a = pos[t1], &b = pos[t2], &c = pos[t3];
             const Vec3 cp = closest_point_on_triangle(a,b,c,pv);
             const float dist = (cp - pv).norm();
 
             // 4) rest-shape exclusion
-            if (min_distance_filtering_ref_pos && min_query_radius > 0.f) {
+            if (min_distance_filtering_ref_pos && rest_exclusion_radius > 0.f) {
                 const auto& ref = *min_distance_filtering_ref_pos;
                 const Vec3 ar = ref[t1], br = ref[t2], cr = ref[t3], vr = ref[v];
                 const Vec3 cpr = closest_point_on_triangle(ar, br, cr, vr);
-                if (const float dist_ref = (cpr - vr).norm(); dist_ref < min_query_radius) return;
+                if (const float dist_ref = (cpr - vr).norm(); dist_ref < rest_exclusion_radius) return;
             }
 
             if (dist < max_query_radius) {
                 min_vertex_to_tri_dist = std::min(min_vertex_to_tri_dist, dist);
-                min_tri_to_vertex_dist = std::min(min_tri_to_vertex_dist, dist);
-                info_.triangle_colliding_vertices_min_dist[tri_id] = min_tri_to_vertex_dist;
+                info_.triangle_colliding_vertices_min_dist[tri_id] =
+                    std::min(info_.triangle_colliding_vertices_min_dist[tri_id], dist);
                 if (count < cap) {
                     info_.vertex_colliding_triangles[2 * (off + count) + 0] = v;
                     info_.vertex_colliding_triangles[2 * (off + count) + 1] = tri_id;
@@ -278,12 +286,12 @@ void TriMeshCollisionDetector::ensure_capacity_for_vertex_buffers() {
 
 void TriMeshCollisionDetector::collision_detection(const State &state_in) {
     refit(state_in.particle_pos);
-    vertex_triangle_collision_detection(particle_contact_margin, particle_rest_shape_contact_exclusion_radius,
-                                        &model_.particle_pos0);
+    vertex_triangle_collision_detection(state_in.particle_pos, particle_contact_margin,
+                                        particle_rest_shape_contact_exclusion_radius, &model_.particle_pos0);
 
     /*if (info_.vertex_overflow) {
         ensure_capacity_for_vertex_buffers();
-        vertex_triangle_collision_detection(particle_self_contact_margin, particle_rest_shape_contact_exclusion_radius,
+        vertex_triangle_collision_detection(particle_contact_margin, particle_rest_shape_contact_exclusion_radius,
                                         &model_.particle_pos0);
     }*/
 
@@ -292,6 +300,20 @@ void TriMeshCollisionDetector::collision_detection(const State &state_in) {
     // init pos_prev_collision_detection
     pos_prev_collision_detection_ = state_in.particle_pos;
     compute_particle_conservative_bounds();
+}
+
+Vec3 TriMeshCollisionDetector::apply_conservative_bounds(const VertexID v, const Vec3 &inertia) const {
+    const Vec3& prev_pos = pos_prev_collision_detection_[v];
+    Vec3 disp = inertia - prev_pos;
+
+    const float bound = particle_conservative_bounds_[v];
+
+    const float disp_norm = disp.norm();
+    if (disp_norm > bound && bound > 1e-5) {
+        disp = disp * (bound / disp_norm);
+        return prev_pos + disp;
+    }
+    return inertia;
 }
 
 void TriMeshCollisionDetector::compute_offsets(const std::vector<int> &sizes, std::vector<int> &offsets) {

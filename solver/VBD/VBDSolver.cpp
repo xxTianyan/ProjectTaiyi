@@ -85,7 +85,13 @@ void VBDSolver::Step(State& state_in, State& state_out, const float dt) {
 
     Init();
 
-    forward_step(state_in, dt);
+    if (detector_) {
+        detector_->collision_detection(state_in);
+        forward_step_with_penetration(state_in, dt);
+    }
+    else
+        forward_step(state_in, dt);
+
     for (int iter = 0; iter < num_iters; ++iter) {
         ScopeTimer iter_timer = dbg_ ? dbg_->timer_iteration() : ScopeTimer(nullptr);
         solve(state_in, state_out, dt);
@@ -469,6 +475,25 @@ void VBDSolver::forward_step(State& state_in, const float dt) {
     }
 }
 
+void VBDSolver::forward_step_with_penetration(State &state_in, float dt) {
+    const size_t num_nodes = model_.total_particles();
+    const auto& gravity = model_.gravity_;
+
+    for (size_t i = 0; i < num_nodes; ++i) {
+        prev_pos_[i] = state_in.particle_pos[i];
+
+        const float inv_mass = model_.particle_inv_mass[i];
+        if (inv_mass == 0) {
+            inertia_[i] = state_in.particle_pos[i];
+            continue;
+        }
+
+        const Vec3 vel_new = state_in.particle_vel[i] + (state_in.particle_force[i] * inv_mass * dt) + gravity * dt;
+        inertia_[i] = state_in.particle_pos[i] + vel_new * dt;
+        state_in.particle_pos[i] = detector_->apply_conservative_bounds(i, inertia_[i]);
+    }
+}
+
 void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
 
     if (&state_in == &state_out) {
@@ -617,9 +642,13 @@ void VBDSolver::update_velocity(State& state_out, const float dt) const {
     }
 }
 
-void VBDSolver::set_self_collision() {
+void VBDSolver::set_self_collision(const float particle_contact_margin, const float particle_rest_shape_contact_exclusion_radius,
+                                   const float conservative_bound_relaxation) {
     if (detector_) return;
     detector_ = std::make_unique<TriMeshCollisionDetector>(model_, adjacency_info_);
+    detector_->particle_contact_margin = particle_contact_margin;
+    detector_->particle_rest_shape_contact_exclusion_radius = particle_rest_shape_contact_exclusion_radius;
+    detector_->conservative_bound_relaxation = conservative_bound_relaxation;
 }
 
 void VBDSolver::BuildAdjacencyInfo() {

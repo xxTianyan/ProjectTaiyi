@@ -185,7 +185,6 @@ void Application::Run(const SampleId start_sample) {
 
         const float dt = GetFrameTime();
         ctx_.dt = dt;
-        ctx_.frame_id++;
 
         // common updates
         perfMonitor_.Update(dt);
@@ -208,6 +207,7 @@ void Application::Run(const SampleId start_sample) {
         // Update
         if (current_ && !ctx_.paused) {
             current_->Update(ctx_);
+            ctx_.frame_id++;
         }
 
         // Render

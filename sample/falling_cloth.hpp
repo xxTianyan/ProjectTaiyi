@@ -79,6 +79,7 @@ public:
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
         solver_ = std::make_unique<VBDSolver>(scene_->model_, 3, default_cloth(),dbg_.get());
+        solver_->set_self_collision(0.16, 0.7, 0.43);
 
         // debug aabb tree
         tri_boxes_.resize(scene_->model_.tris.size());

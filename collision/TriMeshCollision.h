@@ -142,13 +142,9 @@ public:
     explicit TriMeshCollisionDetector(const MModel& model, const ForceElementAdjacencyInfo& adj, int vertex_pre_alloc = 8, int vertex_max_alloc = 64, int edge_pre_alloc = 8,
                                       int edge_max_alloc = 64, int leaf_size = 1);
 
-    void vertex_triangle_collision_detection(float max_query_radius, float min_query_radius = 0.0f,
-        const std::vector<Vec3>* min_distance_filtering_ref_pos = nullptr);
-
-    /*void edge_edge_collision_detection(float max_query_radius, float min_query_radius = 0.0f,
-        const std::vector<Vec3>* min_distance_filtering_ref_pos = nullptr);*/
-
     void collision_detection(const State& state_in);
+
+    Vec3 apply_conservative_bounds(const VertexID v, const Vec3& inertia) const;
 
     // Optional filtering lists (must be sorted per-vertex/per-edge if you want binary search)
     void set_vertex_triangle_filter_list(const std::vector<int>* list, const std::vector<int>* offsets);
@@ -162,6 +158,12 @@ public:
     float conservative_bound_relaxation = 0.1f;
 
 private:
+
+    void vertex_triangle_collision_detection(const std::vector<Vec3>& pos, float max_query_radius, float rest_exclusion_radius = 0.0f,
+        const std::vector<Vec3>* min_distance_filtering_ref_pos = nullptr);
+
+    /*void edge_edge_collision_detection(const std::vector<Vec3>& pos, float max_query_radius, float min_query_radius = 0.0f,
+        const std::vector<Vec3>* min_distance_filtering_ref_pos = nullptr);*/
 
     void compute_tri_aabbs(const std::vector<Vec3>& pos);
 
@@ -203,9 +205,6 @@ private:
     // filtering list (optional)
     const std::vector<int>* vt_filter_list_ = nullptr;
     const std::vector<int>* vt_filter_offsets_ = nullptr;
-
-    // snapshot of positions used in the last compute (copy for simplicity; you can store a pointer/span instead)
-    std::vector<Vec3> positions_;
 
     CollisionInfo info_;
 

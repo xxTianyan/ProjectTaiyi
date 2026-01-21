@@ -28,11 +28,14 @@ public:
 
     void forward_step(State& state_in, float dt);
 
+    void forward_step_with_penetration(State& state_in, float dt);
+
     void solve(State& state_in, State& state_out, float dt) const;
 
     void update_velocity(State& stat_out, float dt) const;
 
-    void set_self_collision();
+    void set_self_collision(float particle_contact_margin, float particle_rest_shape_contact_exclusion_radius,
+                            float conservative_bound_relaxation);
 
     static void accumulate_stvk_triangle_force_hessian(std::span<const Vec3> pos, const MMaterial& mat,
                                                        const triangle& face, uint32_t vtex_order, Vec3& force, Mat3& H);

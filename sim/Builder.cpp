@@ -40,7 +40,7 @@ size_t Builder::add_cloth(const float width, const float height,
 
     Builder::CheckVertexLimit(local_particle_count);
 
-    const size_t base_particle = model_.mesh_infos.empty() ? 0ull : static_cast<size_t>(model_.mesh_infos.back().particle.end());
+    const size_t base_particle = model_.mesh_infos.empty() ? 0ull : model_.mesh_infos.back().particle.end();
     PrepareCapacity(local_particle_count);
 
     const float dx = width  / static_cast<float>(resX);
