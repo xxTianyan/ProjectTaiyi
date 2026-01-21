@@ -56,68 +56,6 @@ inline void compute_projected_isotropic_friction_ipc(
     H_out = k * (P * inv_d - (t * t.transpose()) * inv_d3);
 }
 
-
-// -------- static plane contact (y=0 plane is a special case of this) --------
-inline void evaluate_static_plane_particle_contact(
-    const Vec3& x, const Vec3& x_prev,
-    const Vec3& plane_point, const Vec3& plane_n_unit,
-    const float radius,
-    const float ke, float kd_ratio,       // Newton: damping_coeff = kd_ratio * ke
-    const float friction_mu, float friction_epsilon,
-    const float dt,
-    Vec3& f_out, Mat3& H_out){
-    const Vec3& n = plane_n_unit; // must be unit length
-
-    // signed distance along n: s = n·(x - p)
-    const float s = n.dot(x - plane_point);
-
-    // penetration depth: d = r - s
-    float d = radius - s;
-
-    if (!(std::isfinite(d)) || d <= 0.0f) {
-        f_out.setZero();
-        H_out.setZero();
-        return;
-    }
-
-    // Optional: clamp penetration to avoid extreme impulses when tunneling
-    d = std::min(d, 0.01f); // tune in length units (or 0.2*avg_edge_length)
-
-    // Normal spring
-    const float fn = ke * d;
-    Vec3 f = n * fn;
-    Mat3 K = ke * (n * n.transpose());
-
-    // Finite-difference displacement over dt (particle vs static plane)
-    const Vec3 dx = x - x_prev;
-
-    // Normal damping only when approaching: dot(n, dx) < 0
-    if (n.dot(dx) < 0.0f) {
-        const float dt_safe = std::max(dt, 1.0e-8f);
-        const float damping_coeff = kd_ratio * ke; // Newton-style
-        const float c_over_dt = damping_coeff / dt_safe;
-
-        const Mat3 Kd = c_over_dt * (n * n.transpose());
-        K += Kd;
-        f -= Kd * dx; // = -c v_n n
-    }
-
-    // Friction (projected + regularized)
-    if (friction_mu > 0.0f) {
-        const float eps_u = friction_epsilon * dt; // Newton uses eps*dt
-        Vec3 ff; Mat3 Kf;
-        compute_projected_isotropic_friction_ipc(
-            friction_mu, fn, n, dx /* relative_translation */, eps_u, ff, Kf
-            );
-        f += ff;
-        K += Kf;
-    }
-
-    f_out = f;
-    H_out = K;
-}
-
-
 void VBDSolver::Init() {
 
     const size_t num_nodes = model_.total_particles();
@@ -454,6 +392,63 @@ void VBDSolver::accumulate_neo_hookean_tetrahedron_force_hessian(const std::span
         const auto signed_V = Ds.col((0)).dot(Ds.col(1).cross(Ds.col(2))) * (1.0f / 6.0f);
         dbg_->inspect_tet(tet_id, J, signed_V);
     }
+}
+
+void VBDSolver::evaluate_static_plane_particle_contact(const Vec3 &x, const Vec3 &x_prev, const Vec3 &plane_point,
+                                                       const Vec3 &plane_n_unit, const float radius, const float ke,
+                                                       const float kd_ratio, const float friction_mu, const float friction_epsilon,
+                                                       const float dt, Vec3 &f_out, Mat3 &H_out) const{
+    const Vec3& n = plane_n_unit;
+
+    // signed distance along n: s = n·(x - p)
+    const float s = n.dot(x - plane_point);
+
+    // penetration depth: d = r - s
+    float d = radius - s;
+
+    if (!(std::isfinite(d)) || d <= 0.0f) {
+        f_out.setZero();
+        H_out.setZero();
+        return;
+    }
+
+    dbg_->record_collision();
+
+    // Optional: clamp penetration to avoid extreme impulses when tunneling
+    d = std::min(d, 0.01f); // tune in length units (or 0.2*avg_edge_length)
+
+    // Normal spring
+    const float fn = ke * d;
+    Vec3 f = n * fn;
+    Mat3 K = ke * (n * n.transpose());
+
+    // Finite-difference displacement over dt (particle vs static plane)
+    const Vec3 dx = x - x_prev;
+
+    // Normal damping only when approaching: dot(n, dx) < 0
+    if (n.dot(dx) < 0.0f) {
+        const float dt_safe = std::max(dt, 1.0e-8f);
+        const float damping_coeff = kd_ratio * ke; // Newton-style
+        const float c_over_dt = damping_coeff / dt_safe;
+
+        const Mat3 Kd = c_over_dt * (n * n.transpose());
+        K += Kd;
+        f -= Kd * dx; // = -c v_n n
+    }
+
+    // Friction (projected + regularized)
+    if (friction_mu > 0.0f) {
+        const float eps_u = friction_epsilon * dt; // Newton uses eps*dt
+        Vec3 ff; Mat3 Kf;
+        compute_projected_isotropic_friction_ipc(
+            friction_mu, fn, n, dx /* relative_translation */, eps_u, ff, Kf
+            );
+        f += ff;
+        K += Kf;
+    }
+
+    f_out = f;
+    H_out = K;
 }
 
 

@@ -43,6 +43,9 @@ public:
     void accumulate_neo_hookean_tetrahedron_force_hessian(std::span<const Vec3> pos, const MMaterial& mat,
         const tetrahedron& tet, uint32_t vtex_order, Vec3& force, Mat3& H, /*for debug*/ size_t tet_id) const;
 
+    void evaluate_static_plane_particle_contact(const Vec3 &x, const Vec3 &x_prev, const Vec3 &plane_point,
+                                                const Vec3 &plane_n_unit,  float radius,  float ke,
+                                                float kd_ratio, float friction_mu, float friction_epsilon, float dt,Vec3& f_out, Mat3& H_out) const;
 
 private:
 
