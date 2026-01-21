@@ -67,8 +67,8 @@ class FallingCloth final : public Sample {
 public:
 
     FallingCloth() {
-        max_ticks_per_frame_ = 1;
-        substeps_ = 4;
+        max_ticks_per_frame0_ = 1;
+        substeps0_ = 4;
         leaf_size_ = 16;
     }
 

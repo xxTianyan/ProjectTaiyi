@@ -11,8 +11,15 @@
 #include "Types.h"
 #include <chrono>
 
-inline std::size_t count_nonzero(const std::vector<char>& v) {
-    return std::ranges::count_if(v, [](const unsigned char c) { return c != 0; });
+inline std::size_t count_and_clear(std::vector<char>& v) {
+    auto* p = reinterpret_cast<unsigned char*>(v.data());
+    std::size_t sum = 0;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        const unsigned char x = p[i];
+        sum += (x != 0);
+        p[i] = 0;
+    }
+    return sum;
 }
 
 
@@ -143,8 +150,7 @@ public:
     void end_step() {
 
         // record some information that run through whole current frame and clear relevant flag vector
-        current_frame_.collision_particles = count_nonzero(collision_particles_flag_);
-        std::ranges::fill(collision_particles_flag_, 0);
+        current_frame_.collision_particles = count_and_clear(collision_particles_flag_);
 
         if (state_ == RunState::Frozen) return; // 没跑，不用记录
 

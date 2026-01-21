@@ -17,8 +17,8 @@ class RubberBall final : public Sample {
 
 public:
     RubberBall() {
-        max_ticks_per_frame_ = 8;
-        substeps_ = 8;
+        max_ticks_per_frame0_ = 8;
+        substeps0_ = 8;
     };
 
     void CreateWorld([[maybe_unused]]AppContext &ctx) override {

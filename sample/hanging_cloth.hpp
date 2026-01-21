@@ -19,8 +19,8 @@ class HangingCloth final : public Sample {
 public:
 
     HangingCloth() {
-        max_ticks_per_frame_ = 8;
-        substeps_ = 4;
+        max_ticks_per_frame0_ = 8;
+        substeps0_ = 4;
     }
 
     void CreateWorld([[maybe_unused]]AppContext &ctx) override {

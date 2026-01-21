@@ -19,8 +19,8 @@ class FallingBunny final : public Sample {
 
 public:
     FallingBunny() {
-        max_ticks_per_frame_ = 8;
-        substeps_ = 16;
+        max_ticks_per_frame0_ = 8;
+        substeps0_ = 16;
     };
     void CreateWorld([[maybe_unused]]AppContext &ctx) override {
         MModel model;

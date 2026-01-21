@@ -34,6 +34,16 @@ public:
         ImGui::End();
     }
 
+    void DrawContent(SolverDebugger& debugger) {
+        // when want dbg panel insert in other imgui panel
+        DrawStatusAndControls(debugger);
+        DrawManualDump(debugger);
+        DrawTriggerInfo(debugger);
+        DrawLiveStats(debugger);
+        DrawPerformance(debugger);
+        DrawSettings(debugger);
+    }
+
 private:
     // --- 内部 UI 组件 ---
 

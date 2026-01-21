@@ -138,7 +138,7 @@ void Application::DrawAppUI_() {
 
     ImGui::End();
 
-    // Sample own UI
+    // if Sample own UI
     if (current_) {
         current_->DrawUI(ctx_);
     }
