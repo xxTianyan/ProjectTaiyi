@@ -81,6 +81,19 @@ public:
         SetShaderValue(cloth_shader, rough,   &clothRoughness, SHADER_UNIFORM_FLOAT);
         SetShaderValue(cloth_shader, specStr, &clothSpec,      SHADER_UNIFORM_FLOAT);
         SetShaderValue(cloth_shader, wrap,    &clothWrap,      SHADER_UNIFORM_FLOAT);
+
+        int locFrontTint = GetShaderLocation(cloth_shader, "frontTint");
+        int locBackTint  = GetShaderLocation(cloth_shader, "backTint");
+        int locStrength  = GetShaderLocation(cloth_shader, "twoSidedTintStrength");
+
+        float frontTint[3] = {0.80f, 0.85f, 0.95f};
+        float backTint[3]  = {0.95f, 0.25f, 0.25f};
+        float strength = 1.0f; // 调试建议 1.0；想保留原色就 0.3~0.6
+
+        SetShaderValue(cloth_shader, locFrontTint, frontTint, SHADER_UNIFORM_VEC3);
+        SetShaderValue(cloth_shader, locBackTint,  backTint,  SHADER_UNIFORM_VEC3);
+        SetShaderValue(cloth_shader, locStrength,  &strength, SHADER_UNIFORM_FLOAT);
+
     };
 
 

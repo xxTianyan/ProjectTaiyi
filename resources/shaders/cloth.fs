@@ -43,6 +43,12 @@ uniform float roughness;            // 0..1：越大越“哑光”（布料建�
 uniform float specStrength;         // 高光强度（布料建议 0.10~0.35）
 uniform float wrapDiffuse;          // 0..0.5：漫反射“包裹”程度（布料建议 0.15~0.35）
 
+// ====================== [Debug / Two-Sided Tint] ======================
+// 正面/背面颜色tint：用于观察自碰撞时正反面翻转与穿插
+uniform vec3  frontTint;            // e.g. vec3(0.80, 0.85, 0.95)
+uniform vec3  backTint;             // e.g. vec3(0.95, 0.25, 0.25)
+uniform float twoSidedTintStrength; // 0..1, 0=off, 1=full tint
+
 // ------------------ Helpers ------------------
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
 {
@@ -77,6 +83,17 @@ void main()
     vec4 texel = texture(texture0, vTexCoord);
     vec4 base  = colDiffuse * texel * vColor;
     vec3 albedo = base.rgb;
+
+    // ------------------ Two-sided tint (debug aid) ------------------
+    // 仅调制 albedo，不直接替换光照结果，避免破坏明暗关系
+    float tintW = clamp(twoSidedTintStrength, 0.0, 1.0);
+    vec3 tint = gl_FrontFacing ? frontTint : backTint;
+
+    // 乘法 tint 更适合“保持纹理/明暗”，比直接 replace 更自然
+    vec3 albedoTinted = albedo * tint;
+
+    // 若你希望更“纯色对比”，可把乘法换成 mix(albedo, tint, tintW)
+    albedo = mix(albedo, albedoTinted, tintW);
 
     // ------------------ Ambient (Hemispheric) ------------------
     float hemi = clamp(N.y * 0.5 + 0.5, 0.0, 1.0);
