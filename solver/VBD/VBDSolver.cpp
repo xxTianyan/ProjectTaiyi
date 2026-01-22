@@ -679,7 +679,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) {
         {   // temporary self-contact
             if (detector_) {
                 constexpr float particle_self_contact_radius = 0.16 * 0.1f;
-                const float collision_stiffness = 10.0;
+                const float collision_stiffness = 100.0;
                 const float collision_damping = 0.02;
                 const float mu_fric = 0.01f;    // start with 0.0 then enable
                 const float eps_fric = 0.01f * 0.1; // length scale, need eigen length

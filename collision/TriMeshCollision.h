@@ -145,7 +145,7 @@ public:
         int edge_overflow = 0;
     };
 
-    explicit TriMeshCollisionDetector(const MModel& model, const ForceElementAdjacencyInfo& adj, int vertex_pre_alloc = 16, int vertex_max_alloc = 64, int edge_pre_alloc = 8,
+    explicit TriMeshCollisionDetector(const MModel& model, const ForceElementAdjacencyInfo& adj, int vertex_pre_alloc = 32, int vertex_max_alloc = 64, int edge_pre_alloc = 8,
                                       int edge_max_alloc = 64, int leaf_size = 1);
 
     void collision_detection(const State& state_in);
