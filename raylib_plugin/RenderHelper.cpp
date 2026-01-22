@@ -160,7 +160,7 @@ void RenderHelper::Draw(const bool is_wire_mode) const {
         if (is_wire_mode)
             DrawModelWires(rm.model, Vector3{0.0f, 0.0f, 0.0f}, 1.0, BLACK);
         else
-            DrawModel(rm.model, Vector3{0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
+            DrawModel(rm.model, Vector3{0.0f, 0.0f, 0.0f}, 1.0f, MAROON);
     }
 }
 

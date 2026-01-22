@@ -145,7 +145,7 @@ public:
         int edge_overflow = 0;
     };
 
-    explicit TriMeshCollisionDetector(const MModel& model, const ForceElementAdjacencyInfo& adj, int vertex_pre_alloc = 8, int vertex_max_alloc = 64, int edge_pre_alloc = 8,
+    explicit TriMeshCollisionDetector(const MModel& model, const ForceElementAdjacencyInfo& adj, int vertex_pre_alloc = 16, int vertex_max_alloc = 64, int edge_pre_alloc = 8,
                                       int edge_max_alloc = 64, int leaf_size = 1);
 
     void collision_detection(const State& state_in);
@@ -153,6 +153,8 @@ public:
     [[nodiscard]] Vec3 apply_conservative_bounds(VertexID v, const Vec3& inertia) const;
 
     void draw_triangle_bvh(const AABBTreeDrawSettings& s) const;
+
+    [[nodiscard]] const CollisionInfo& info() const { return info_; }
 
     // Optional filtering lists (must be sorted per-vertex/per-edge if you want binary search)
     void set_vertex_triangle_filter_list(const std::vector<int>* list, const std::vector<int>* offsets);
@@ -266,6 +268,132 @@ inline Vec3 closest_point_on_triangle(const Vec3& a,const Vec3& b,const Vec3& c,
     const float v = vb * denom;
     const float w = vc * denom;
     return a + ab * v + ac * w;
+}
+
+inline std::pair<Vec3, Vec3> triangle_closest_point(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& p) {
+    const Vec3 ab = b - a;
+    const Vec3 ac = c - a;
+    const Vec3 ap = p - a;
+
+    const float d1 = ab.dot(ap);
+    const float d2 = ac.dot(ap);
+
+    if (d1 <= 0.f && d2 <= 0.f) return {a, {1,0,0}};
+
+    const Vec3 bp = p - b;
+    const float d3 = ab.dot(bp);
+    const float d4 = ac.dot(bp);
+    if (d3 >= 0.f && d4 <= d3) return {b, {0,1,0}};
+
+    const float vc = d1*d4 - d3*d2;
+    if (vc <= 0.f && d1 >= 0.f && d3 <= 0.f) {
+        float v = d1 / (d1 - d3);
+        return {a + ab*v, {1-v, v, 0}};
+    }
+
+    const Vec3 cp = p - c;
+    const float d5 = ab.dot(cp);
+    const float d6 = ac.dot(cp);
+    if (d6 >= 0.f && d5 <= d6) return {c, {0,0,1}};
+
+    const float vb = d5*d2 - d1*d6;
+    if (vb <= 0.f && d2 >= 0.f && d6 <= 0.f) {
+        float w = d2 / (d2 - d6);
+        return {a + ac*w, {1-w, 0, w}};
+    }
+
+    const float va = d3*d6 - d5*d4;
+    if (va <= 0.f && (d4 - d3) >= 0.f && (d5 - d6) >= 0.f) {
+        float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return {b + (c - b)*w, {0, 1-w, w}};
+    }
+
+    const float denom = 1.f / (va + vb + vc);
+    float v = vb * denom;
+    float w = vc * denom;
+    return {a + ab*v + ac*w, {1-v-w, v, w}};
+}
+
+inline void build_orthonormal_basis(const Vec3& n, Vec3& b1, Vec3& b2){
+    // Frisvad-like branchless-ish construction (matches your code structure)
+    if (n.z() < 0.0f) {
+        float a = 1.0f / (1.0f - n.z());
+        float b = n.x() * n.y() * a;
+
+        b1 = Vec3(1.0f - n.x() * n.x() * a, -b, n.x());
+        b2 = Vec3(b, n.y() * n.y() * a - 1.0f, -n.y());
+    } else {
+        float a = 1.0f / (1.0f + n.z());
+        float b = -n.x() * n.y() * a;
+
+        b1 = Vec3(1.0f - n.x() * n.x() * a, b, -n.x());
+        b2 = Vec3(b, 1.0f - n.y() * n.y() * a, -n.y());
+    }
+}
+
+inline void evaluate_self_contact_force_norm(float dis, float collision_radius, float k,float& dEdD, float& d2E_dDdD){
+    const float penetration_depth = collision_radius - dis;
+    dEdD = 0.0f;
+    d2E_dDdD = 0.0f;
+
+    const float tau = collision_radius * 0.5f;
+    if (dis > 1e-5f && dis < tau) {
+        const float k2 = 0.5f * tau * tau * k;
+        dEdD = -k2 / dis;
+        d2E_dDdD =  k2 / (dis * dis);
+    } else {
+        dEdD = -k * penetration_depth;
+        d2E_dDdD = k;
+    }
+}
+
+inline void damp_collision(
+    const Vec3& displacement,
+    const Vec3& collision_normal,
+    const Mat3& collision_hessian,
+    float collision_damping,
+    float dt,
+    Vec3& damping_force,
+    Mat3& damping_hessian){
+    if (displacement.dot(collision_normal) > 0.0f) {
+        damping_hessian = (collision_damping / dt) * collision_hessian;
+        damping_force   = damping_hessian * displacement;
+    } else {
+        damping_force.setZero();
+        damping_hessian.setZero();
+    }
+}
+
+inline void compute_friction(
+    float mu,
+    float normal_contact_force,
+    const Mat32& T,
+    const Vec2& u,
+    float eps_u,
+    Vec3& force,
+    Mat3& hessian){
+    const float u_norm = u.norm();
+
+    if (u_norm > 0.0f) {
+        float f1_SF_over_x = 0.0f;
+        if (u_norm > eps_u) {
+            // constant stage
+            f1_SF_over_x = 1.0f / u_norm;
+        } else {
+            // smooth transition
+            f1_SF_over_x = (-u_norm / eps_u + 2.0f) / eps_u;
+        }
+
+        // force = -mu * normal_contact_force * T * (f1 * u)
+        force = -mu * normal_contact_force * (T * (f1_SF_over_x * u));
+
+        // hessian = mu * normal_contact_force * T * (f1 * I2) * T^T
+        Eigen::Matrix2f I2 = Eigen::Matrix2f::Identity();
+        hessian = mu * normal_contact_force * (T * (f1_SF_over_x * I2) * T.transpose());
+    } else {
+        force.setZero();
+        hessian.setZero();
+    }
 }
 
 inline int binary_search_first_greater(const std::vector<int>& arr, int value, int begin, int end) {

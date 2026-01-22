@@ -16,6 +16,7 @@ using VertexID = size_t;
 constexpr VertexID INVALID_VERTEX_ID = 0xFFFF;
 
 using Vec3 = Eigen::Vector3f;
+using Vec2 = Eigen::Vector2f;
 using Mat3 = Eigen::Matrix3f;
 using Mat2 = Eigen::Matrix2f;
 using Quat = Eigen::Quaternionf;

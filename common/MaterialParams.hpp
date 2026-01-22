@@ -42,7 +42,7 @@ private:
 };
 
 inline MMaterial default_cloth() {
-    return {1e3f, 0.3f, 5.f};
+    return {2.5e4f, 0.25f, 3.f};
 };
 
 

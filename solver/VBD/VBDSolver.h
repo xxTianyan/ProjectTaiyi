@@ -22,33 +22,10 @@ public:
         : model_(model), num_iters(num_iters), dbg_(dbg),material_(material) {}
     ~VBDSolver() override = default;
 
-    void Init() override;
-
     void Step(State& state_in, State& state_out, float dt) override;
-
-    void forward_step(State& state_in, float dt);
-
-    void forward_step_with_penetration(State& state_in, float dt);
-
-    void solve(State& state_in, State& state_out, float dt) const;
-
-    void update_velocity(State& stat_out, float dt) const;
 
     void set_self_collision(float particle_contact_margin, float particle_rest_shape_contact_exclusion_radius,
                             float conservative_bound_relaxation);
-
-    static void accumulate_stvk_triangle_force_hessian(std::span<const Vec3> pos, const MMaterial& mat,
-                                                       const triangle& face, uint32_t vtex_order, Vec3& force, Mat3& H);
-
-    static void accumulate_dihedral_angle_based_bending_force_hessian(std::span<const Vec3> pos, const MMaterial& mat,
-        const edge& e, uint32_t vtex_order, Vec3& force, Mat3& H) ;
-
-    void accumulate_neo_hookean_tetrahedron_force_hessian(std::span<const Vec3> pos, const MMaterial& mat,
-        const tetrahedron& tet, uint32_t vtex_order, Vec3& force, Mat3& H, /*for debug*/ size_t tet_id) const;
-
-    void evaluate_static_plane_particle_contact(const Vec3 &x, const Vec3 &x_prev, const Vec3 &plane_point,
-                                                const Vec3 &plane_n_unit,  float radius,  float ke,
-                                                float kd_ratio, float friction_mu, float friction_epsilon, float dt,Vec3& f_out, Mat3& H_out) const;
 
     // detector relevant
     void draw_triangle_bvh(const AABBTreeDrawSettings& s) const {
@@ -57,6 +34,34 @@ public:
     };
 
 private:
+     void Init() override;
+
+    void forward_step(State& state_in, float dt);
+
+    void forward_step_with_penetration(State& state_in, float dt);
+
+    void solve(State& state_in, State& state_out, float dt);
+
+    void update_velocity(State& stat_out, float dt) const;
+
+    static void accumulate_stvk_triangle_force_hessian(std::span<const Vec3> pos, const MMaterial &mat,
+                                                       const triangle &face, uint32_t vtex_order, Vec3 &force, Mat3 &H);
+
+    static void accumulate_dihedral_angle_based_bending_force_hessian(std::span<const Vec3> pos, const MMaterial &mat,
+                                                                      const edge &e, uint32_t vtex_order, Vec3 &force,
+                                                                      Mat3 &H);
+
+    void accumulate_neo_hookean_tetrahedron_force_hessian(std::span<const Vec3> pos, const MMaterial &mat,
+                                                          const tetrahedron &tet, uint32_t vtex_order, Vec3 &force,
+                                                          Mat3 &H, /*for debug*/ size_t tet_id) const;
+
+    void evaluate_static_plane_particle_contact(const Vec3 &x, const Vec3 &x_prev, const Vec3 &plane_point,
+                                                const Vec3 &plane_n_unit,  float radius,  float ke,
+                                                float kd_ratio, float friction_mu, float friction_epsilon, float dt,Vec3& f_out, Mat3& H_out) const;
+
+    void evaluate_vertex_triangle_contact(VertexID v, std::span<const Vec3> pos, const triangle &face,
+                                          float collision_radius, float collision_stiffness, float collision_damping,
+                                          float friction_mu, float friction_epsilon, float dt);
 
     void BuildAdjacencyInfo();
 
@@ -72,6 +77,8 @@ private:
 
     std::vector<Vec3> inertia_;
     std::vector<Vec3> prev_pos_;
+    std::vector<Vec3> contact_force_;
+    std::vector<Mat3> contact_hessian_;
 
     ForceElementAdjacencyInfo adjacency_info_;
 

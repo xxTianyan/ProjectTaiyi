@@ -58,9 +58,18 @@ inline void compute_projected_isotropic_friction_ipc(
 
 void VBDSolver::Init() {
 
+
+
     const size_t num_nodes = model_.total_particles();
     if (inertia_.size() != num_nodes) inertia_.resize(num_nodes);
     if (prev_pos_.size() != num_nodes) prev_pos_.resize(num_nodes);
+    if (contact_force_.size() != num_nodes) contact_force_.resize(num_nodes);
+    if (contact_hessian_.size() != num_nodes) contact_hessian_.resize(num_nodes);
+
+    std::ranges::fill(contact_force_, Vec3::Zero());
+    std::ranges::fill(contact_hessian_, Mat3::Zero());
+    std::ranges::fill(prev_pos_, Vec3::Zero());
+    std::ranges::fill(inertia_, Vec3::Zero());
 
     if (model_.topology_version != topology_version_
         || adjacency_info_.vertex_faces.offsets.size() != num_nodes + 1) {
@@ -455,6 +464,102 @@ void VBDSolver::evaluate_static_plane_particle_contact(const Vec3 &x, const Vec3
     H_out = K;
 }
 
+void VBDSolver::evaluate_vertex_triangle_contact(const VertexID v, const std::span<const Vec3> pos, const triangle &face,
+                                                 const float collision_radius, const float collision_stiffness,
+                                                 float collision_damping, float friction_mu, float friction_epsilon,
+                                                 float dt) {
+
+    const VertexID ia = face.vertices[0];
+    const VertexID ib = face.vertices[1];
+    const VertexID ic = face.vertices[2];
+
+    const Vec3 &a = pos[ia], &b = pos[ib], &c = pos[ic];
+    const Vec3 &p = pos[v];
+
+    // compute geometry
+    auto [q, bary] = triangle_closest_point(a,b,c,p);
+
+    const Vec3 diff = p - q;
+    const float dist = diff.norm();
+    const Vec3 n = diff / dist;  // collision normal
+
+
+    // no collision
+    if (!(dist > 1e-12 && dist < collision_radius))
+        return;
+
+    // contact normal, dE/dd = k * (dis - radius)
+    float dEdD, d2E_dDdD;
+    evaluate_self_contact_force_norm(dist, collision_radius, collision_stiffness, dEdD, d2E_dDdD);
+
+    // contact normal force/hessian
+    const Vec3 normal_force = -dEdD * n;
+    const Mat3 normal_hessian = d2E_dDdD * (n * n.transpose());
+
+    // add to store vector
+    contact_force_[ia] += -bary.x() * normal_force;
+    contact_force_[ib] += -bary.y() * normal_force;
+    contact_force_[ic] += -bary.z() * normal_force;
+    contact_force_[v] += normal_force;
+
+    contact_hessian_[ia] += bary.x() * bary.x() * normal_hessian;
+    contact_hessian_[ib] += bary.y() * bary.y() * normal_hessian;
+    contact_hessian_[ic] += bary.z() * bary.z() * normal_hessian;
+    contact_hessian_[v] += normal_hessian;
+
+    // damping force and hessian
+    const Vec3 dp = prev_pos_[v] - p;
+    const Vec3 dq = prev_pos_[ia] * bary.x() + prev_pos_[ib] * bary.y() + prev_pos_[ic] * bary.z() - q;
+    const Vec3 rel_disp = dp - dq;
+
+    Vec3 damping_force;
+    Mat3 damping_hessian;
+    damp_collision(rel_disp, n, normal_hessian, collision_damping, dt, damping_force, damping_hessian);
+
+    // add to store vector
+    contact_force_[ia] += -bary.x() * damping_force;
+    contact_force_[ib] += -bary.y() * damping_force;
+    contact_force_[ic] += -bary.z() * damping_force;
+    contact_force_[v] += damping_force;
+
+    contact_hessian_[ia] += bary.x() * bary.x() * damping_hessian;
+    contact_hessian_[ib] += bary.y() * bary.y() * damping_hessian;
+    contact_hessian_[ic] += bary.z() * bary.z() * damping_hessian;
+    contact_hessian_[v] += damping_hessian;
+
+    // friction
+    Vec3 t1, t2;
+    // tangent basis
+    build_orthonormal_basis(n, t1, t2);
+
+    Mat32 T;
+    T.col(0) = t1;
+    T.col(1) = t2;
+
+    // tangent displacement
+    Vec2 u;
+    u.x() = t1.dot(rel_disp);
+    u.y() = t2.dot(rel_disp);
+
+    float normal_contact_force = std::max(0.0f, -dEdD);
+
+    Vec3 friction_force;
+    Mat3 friction_hessian;
+
+    compute_friction(friction_mu, normal_contact_force, T, u, friction_epsilon, friction_force, friction_hessian);
+
+    //store to vector
+    contact_force_[ia] += -bary.x() * friction_force;
+    contact_force_[ib] += -bary.y() * friction_force;
+    contact_force_[ic] += -bary.z() * friction_force;
+    contact_force_[v] += friction_force;
+
+    contact_hessian_[ia] += bary.x() * bary.x() * friction_hessian;
+    contact_hessian_[ib] += bary.y() * bary.y() * friction_hessian;
+    contact_hessian_[ic] += bary.z() * bary.z() * friction_hessian;
+    contact_hessian_[v] += friction_hessian;
+}
+
 
 void VBDSolver::forward_step(State& state_in, const float dt) {
     const size_t num_nodes = model_.total_particles();
@@ -475,7 +580,7 @@ void VBDSolver::forward_step(State& state_in, const float dt) {
     }
 }
 
-void VBDSolver::forward_step_with_penetration(State &state_in, float dt) {
+void VBDSolver::forward_step_with_penetration(State &state_in, const float dt) {
     const size_t num_nodes = model_.total_particles();
     const auto& gravity = model_.gravity_;
 
@@ -494,7 +599,7 @@ void VBDSolver::forward_step_with_penetration(State &state_in, float dt) {
     }
 }
 
-void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
+void VBDSolver::solve(State& state_in, State& state_out, const float dt) {
 
     if (&state_in == &state_out) {
         throw std::runtime_error("VBDSolver::Step requires distinct state_in/state_out.");
@@ -502,23 +607,10 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
 
     const auto num_nodes = model_.total_particles();
 
-    // Plane: xz ground => point (0,0,0), normal +Y
-    const Vec3 plane_p(0.0f, 0.0f, 0.0f);
-    const Vec3 plane_n(0.0f, 1.0f, 0.0f);
-
     // No per-particle radius yet: use a global effective radius
     // Suggest: ~0.25~0.5 * avg_edge_length to avoid deep penetration
-    const float radius = 0.15f * 0.1;  // need eigen length
+    constexpr float radius = 0.15f * 0.2;  // need eigen length
 
-    // Contact stiffness scaling: ke ~ factor * m/dt^2 keeps behavior stable across dt
-    const float ke_factor = 1.0f;
-
-    // Newton uses damping_coeff = kd_ratio * ke
-    const float kd_ratio = 0.02f;  // start tiny (0~0.05)
-
-    // friction
-    const float mu_fric = 0.5f;    // start with 0.0 then enable
-    const float eps_fric = 0.01f * 0.1; // length scale, need eigen length
 
     for (size_t vtex_id = 0; vtex_id < num_nodes; ++vtex_id) {
         auto& pos = state_in.particle_pos[vtex_id];
@@ -540,7 +632,22 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
         Vec3 contact_force = Vec3::Zero();
         Mat3 contact_hessian = Mat3::Zero();
 
+        // temporary body-particle contact
         if (surface_vertices[vtex_id]) {
+            // Plane: xz ground => point (0,0,0), normal +Y
+            const Vec3 plane_p(0.0f, 0.0f, 0.0f);
+            const Vec3 plane_n(0.0f, 1.0f, 0.0f);
+
+            // Contact stiffness scaling: ke ~ factor * m/dt^2 keeps behavior stable across dt
+            const float ke_factor = 1.0f;
+
+            // Newton uses damping_coeff = kd_ratio * ke
+            const float kd_ratio = 0.02f;  // start tiny (0~0.05)
+
+            // friction
+            const float mu_fric = 0.5f;    // start with 0.0 then enable
+            const float eps_fric = 0.01f * 0.1; // length scale, need eigen length
+
 
             const float m = 1.0f / inv_mass;
             const float ke = ke_factor * m / (dt * dt);
@@ -568,6 +675,28 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
         // neo_hookean
         Vec3 NH_force = Vec3::Zero();
         Mat3 NH_hessian = Mat3::Zero();
+
+        {   // temporary self-contact
+            if (detector_) {
+                constexpr float particle_self_contact_radius = 0.16 * 0.1f;
+                const float collision_stiffness = 10.0;
+                const float collision_damping = 0.02;
+                const float mu_fric = 0.01f;    // start with 0.0 then enable
+                const float eps_fric = 0.01f * 0.1; // length scale, need eigen length
+
+
+                const auto& info = detector_->info();
+                const int off = info.vertex_colliding_triangles_offsets[vtex_id];
+                const int cap = info.vertex_colliding_triangles_offsets[vtex_id+1] - off;
+                for (int i = 0; i < cap; ++i) {
+                    const int tri_idx = info.vertex_colliding_triangles[2 * (off + i) + 1];
+                    if (tri_idx < 0) continue;
+                    const auto &face = model_.tris[tri_idx];
+                    evaluate_vertex_triangle_contact(vtex_id, state_in.particle_pos, face, particle_self_contact_radius,
+                                                     collision_stiffness, collision_damping, mu_fric, eps_fric, dt);
+                }
+            }
+        }
 
         {
             ScopeTimer gradient_timer = dbg_ ? dbg_->timer_gradient() : ScopeTimer(nullptr);
@@ -599,8 +728,8 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
 
         Vec3 dx{};
 
-        Vec3 force = inertia_force + dihedral_angle_force + stvk_tri_force + NH_force + contact_force;
-        Mat3 hessian = inertia_hessian + dihedral_angle_hessian + stvk_tri_hessian + NH_hessian + contact_hessian;
+        Vec3 force = inertia_force + dihedral_angle_force + stvk_tri_force + NH_force + contact_force + contact_force_[vtex_id];
+        Mat3 hessian = inertia_hessian + dihedral_angle_hessian + stvk_tri_hessian + NH_hessian + contact_hessian + contact_hessian_[vtex_id];
 
         {
             ScopeTimer liner_solve_timer = dbg_ ? dbg_->timer_linear_solve() : ScopeTimer(nullptr);
@@ -624,12 +753,12 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) const {
          *if (n > maxStep) dx *= (maxStep / n);*/
 
         pos_new = pos + dx;
-
+        if (detector_)
+            pos_new = detector_->apply_conservative_bounds(vtex_id, pos_new);
 
         // if parallel with color group, need to copy new pos back to state_in to satisfy GS.
         // state_in.pos = state_out.pos ...
         pos = pos_new;
-
     }
 }
 

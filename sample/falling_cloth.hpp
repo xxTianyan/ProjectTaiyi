@@ -20,24 +20,25 @@ public:
 
     FallingCloth() {
         max_ticks_per_frame0_ = 1;
-        substeps0_ = 4;
+        substeps0_ = 8;
     }
 
     void CreateWorld([[maybe_unused]]AppContext &ctx) override {
         MModel model;
         Builder builder(model);
-        m_cloth_id_ = builder.add_cloth(2.0f, 3.0f, 12, 18, Vec3{0.0f, 4.0f, 0.0f}, 0.1, ClothOrientation::Vertical, NONE);
+        m_cloth_id_ = builder.add_cloth(2.0f, 3.0f, 16, 32, Vec3{0.0f, 4.0f, 0.0f}, 0.1, ClothOrientation::Vertical,
+                                        2.0f, 0.5f, NONE);
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
-        solver_ = std::make_unique<VBDSolver>(scene_->model_, 3, default_cloth(),dbg_.get());
-        solver_->set_self_collision(0.16, 0.7, 0.43);
+        solver_ = std::make_unique<VBDSolver>(scene_->model_, 2, default_cloth(),dbg_.get());
+        solver_->set_self_collision(0.16, 0.2, 0.43);
 
     };
 
     void Render(AppContext &ctx) override {
 
         AABBTreeDrawSettings dbgTriTree;
-        dbgTriTree.enabled = true;
+        dbgTriTree.enabled = false;
         dbgTriTree.leavesOnly = false;   // 先画 internal + leaf 看整体分割
         dbgTriTree.maxDepth = -1;        // 不要太大
 

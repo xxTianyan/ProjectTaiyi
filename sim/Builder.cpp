@@ -18,6 +18,8 @@ size_t Builder::add_cloth(const float width, const float height,
                           const Vec3& center,
                           const float mass,
                           const ClothOrientation orientation,
+                          const float wave_density,
+                          const float wave_amp,
                           const FixSide fix_mask,
                           const char* name) const {
     // 1. Validation and basic setup
@@ -40,7 +42,7 @@ size_t Builder::add_cloth(const float width, const float height,
 
     Builder::CheckVertexLimit(local_particle_count);
 
-    const size_t base_particle = model_.mesh_infos.empty() ? 0ull : model_.mesh_infos.back().particle.end();
+    const size_t base_particle = model_.mesh_infos.empty() ? 0ull : static_cast<size_t>(model_.mesh_infos.back().particle.end());
     PrepareCapacity(local_particle_count);
 
     const float dx = width  / static_cast<float>(resX);
@@ -57,19 +59,31 @@ size_t Builder::add_cloth(const float width, const float height,
 
     std::vector<float> mass_local(local_particle_count, 0.0f);
 
+    // [MODIFIED] 计算布料平面的法线方向 (波浪起伏的方向)
+    Vec3 n_dir = u_dir.cross(v_dir).normalized();
+
     // 3. Generate Grid Particles
     for (int j = 0; j <= resY; ++j) {
+        // [MODIFIED] 预先计算当前行的波浪偏移
+        // "沿着y方向"：这里理解为波浪随Y变化 (如搓衣板形状)。
+        // 如果想要类似窗帘的垂直褶皱，请把 calculation 换成基于 i * dx
+        const float y_dist = j * dy;
+        const float wave_offset = wave_amp * std::sin(wave_density * y_dist);
+
         for (int i = 0; i <= resX; ++i) {
             const size_t gid = base_particle + (j * (resX + 1) + i);
-            model_.particle_pos0[gid] = start_pos + u_dir * (i * dx) + v_dir * (j * dy);
+            model_.particle_pos0[gid] = start_pos + u_dir * (i * dx) + v_dir * y_dist + n_dir * wave_offset;
             model_.particle_vel0[gid].setZero();
         }
     }
     // 4. Generate Quad Center Particles
     for (int j = 0; j < resY; ++j) {
+        // [MODIFIED] 中心点的 Y 坐标在两行之间，需要偏移 0.5 * dy
+        const float center_y_dist = (j + 0.5f) * dy;
+        const float wave_offset = wave_amp * std::sin(wave_density * center_y_dist);
         for (int i = 0; i < resX; ++i) {
             const size_t gid = base_particle + grid_node_count + (j * resX + i);
-            model_.particle_pos0[gid] = start_pos + u_dir * ((i + 0.5f) * dx) + v_dir * ((j + 0.5f) * dy);
+            model_.particle_pos0[gid] = start_pos + u_dir * ((i + 0.5f) * dx) + v_dir * center_y_dist + n_dir * wave_offset;
             model_.particle_vel0[gid].setZero();
         }
     }
