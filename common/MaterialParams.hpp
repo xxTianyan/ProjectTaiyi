@@ -47,7 +47,7 @@ inline MMaterial default_cloth() {
 
 
 inline MMaterial soft_bunny() {
-    return {1e2f, 0.3f, 0.0f};
+    return {1e4f, 0.3f, 0.0f};
 }
 
 

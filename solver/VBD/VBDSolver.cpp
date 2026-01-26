@@ -58,8 +58,6 @@ inline void compute_projected_isotropic_friction_ipc(
 
 void VBDSolver::Init() {
 
-
-
     const size_t num_nodes = model_.total_particles();
     if (inertia_.size() != num_nodes) inertia_.resize(num_nodes);
     if (prev_pos_.size() != num_nodes) prev_pos_.resize(num_nodes);

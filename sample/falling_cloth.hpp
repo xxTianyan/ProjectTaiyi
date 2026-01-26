@@ -40,7 +40,7 @@ public:
         AABBTreeDrawSettings dbgTriTree;
         dbgTriTree.enabled = false;
         dbgTriTree.leavesOnly = false;   // 先画 internal + leaf 看整体分割
-        dbgTriTree.maxDepth = -1;        // 不要太大
+        dbgTriTree.maxDepth = 6;        // 不要太大
 
 
         BeginMode3D(ctx.orbitCam->camera);
