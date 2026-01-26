@@ -168,7 +168,13 @@ struct edge {
     };
 };
 
-// currently, state and model only store deformable mesh
+enum class ShapeType : int32_t {
+    Sphere = 0,
+    Box    = 1,
+    Capsule= 2,
+    Plane  = 3,
+    // SDF etc...
+};
 
 struct range {
     size_t begin;
@@ -184,10 +190,13 @@ struct MeshInfo {
     range render_tri;
     range tet;
 };
+
 struct RigidBodyInfo {
     std::string name;
-
-    // future need：range shape; range render_mesh; range joints ...
+    int body_id;
+    range vertex;  // just vertices of rigid body surface mesh
+    range shapes;
+    range render_tri;
 };
 
 struct State {
@@ -229,7 +238,6 @@ struct MModel {
     // topology
     std::vector<tetrahedron> tets;
     std::vector<triangle> tris;
-    std::vector<render_trangle> render_tris;
     std::vector<edge> edges;
     // particle initial date
     std::vector<Vec3> particle_pos0; // initial positions
@@ -241,20 +249,36 @@ struct MModel {
 
     uint64_t topology_version = 0;
 
-    // --- rigid bodies (minimal) ---
-
+    // --- rigid bodies ---
     std::vector<RigidBodyInfo> body_infos;
-
     std::vector<Vec3> body_pos0;
     std::vector<Quat> body_rot0;
     std::vector<Vec3> body_lin_vel0;   // optional
     std::vector<Vec3> body_ang_vel0;   // optional
 
+    std::vector<Vec3>  body_com;        // COM in local/body frame
     std::vector<float> body_inv_mass;  // inv_mass==0 => static/kinematic
-    std::vector<Mat3>  body_inv_inertia_body; // inverse inertia in BODY frame
+    std::vector<Mat3>  body_inertia; // inverse inertia in BODY frame
+    std::vector<Mat3>  body_inv_inertia; // inverse inertia in BODY frame
+
+    std::vector<Vec3> body_render_vertices;  // rigid body render surface vertex local position.
 
     size_t num_bodies = 0;
     [[nodiscard]] size_t total_bodies() const { return num_bodies; }
+
+    // --- shape for rigid body ---
+    std::vector<Vec3>  shape_pos0;          // local to body
+    std::vector<Quat>  shape_rot0;          // local to body
+    std::vector<int>   shape_body;          // owning body index
+    std::vector<int32_t>  shape_type;       // ShapeType
+    std::vector<Vec3>  shape_scale;         // non-uniform scale
+
+    std::vector<uint32_t> body_shapes_offsets; // [num_body + 1]
+    std::vector<uint32_t> body_shapes_indices; // flattened list of shape ids
+
+    // ---- for rendering ----
+    std::vector<render_trangle> render_tris;
+
 
     [[nodiscard]] State MakeState() const {
         State s;

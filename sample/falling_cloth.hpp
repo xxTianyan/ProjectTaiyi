@@ -52,7 +52,7 @@ public:
 
         // scene models
         rlDisableBackfaceCulling();
-        renderHelper_.Draw(ctx.is_wire_mode);
+        renderHelper_.Draw(scene_->state_out(), ctx.is_wire_mode);
         rlEnableBackfaceCulling();
 
         solver_->draw_triangle_bvh(dbgTriTree);

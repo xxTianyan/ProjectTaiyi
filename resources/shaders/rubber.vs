@@ -28,5 +28,5 @@ void main()
     fragUV = vertexTexCoord;
     fragColor = vertexColor;
 
-    gl_Position = mvp * vec4(vertexPosition, 1.0);
+    gl_Position = mvp * worldPos;
 }

@@ -16,6 +16,16 @@ void RenderHelper::Shutdown() {
             rm.valid = false;
         }
     }
+
+
+    for (auto& rb : rigid_bodies_) {
+        if (rb.valid) {
+            UnloadRLModelSafe(rb.model);
+            rb.valid = false;
+        }
+    }
+    rigid_bodies_.clear();
+
     meshes_.clear();
     ready_ = false;
     built_topology_version_ = 0;
@@ -27,6 +37,10 @@ void RenderHelper::Update(const State& state) {
     // 1) consistency check
     if (model_->num_particles != state.particle_pos.size()) {
         throw std::runtime_error("RenderHelper::Update: model.num_particles != state.particle_pos.size()");
+    }
+
+    if (model_->num_bodies != state.body_pos.size()) {
+        throw std::runtime_error("RenderHelper::Update: model.num_bodies != state.body_pos.size()");
     }
 
     // 2) rebuild if topology changed
@@ -110,7 +124,7 @@ void RenderHelper::Rebuild() {
         std::memset(mesh.vertices, 0, particle_count * 3 * sizeof(float));
         std::memset(mesh.normals,  0, particle_count * 3 * sizeof(float));
 
-        BuildIndicesU16(*model_, rm.info.render_tri, particle_begin, particle_count, (unsigned short*)mesh.indices);
+        BuildIndicesU16(*model_, rm.info.render_tri, particle_begin, particle_count, mesh.indices);
 
         // Upload as dynamic: positions/normals 每帧更新
         UploadMesh(&mesh, true);
@@ -120,6 +134,68 @@ void RenderHelper::Rebuild() {
         if (IsModelValid(rm.model)) rm.valid = true;
         meshes_.push_back(rm);
     }
+
+    for (const RigidBodyInfo& bi : model_->body_infos) {
+    RenderRigidBody rb{};
+    rb.info = bi;
+
+        const size_t vertex_begin = rb.info.vertex.begin;
+        const size_t vertex_count = rb.info.vertex.count;
+        const size_t tri_count      = rb.info.render_tri.count;
+
+    if (vertex_count == 0 || tri_count == 0) {
+        rb.valid = false;
+        rigid_bodies_.push_back(rb);
+        continue;
+    }
+
+    // u16 index guard
+    if (vertex_count > static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ull) {
+        throw std::runtime_error("RenderHelper::Rebuild: rigid vcount > 65536, raylib u16 indices not supported. Split mesh.");
+    }
+
+    if (vertex_begin + vertex_count > model_->body_render_vertices.size()) {
+        throw std::runtime_error("RenderHelper::Rebuild: rigid render_vertices range out of pool");
+    }
+    if (rb.info.render_tri.end() > model_->body_render_vertices.size()) {
+        throw std::runtime_error("RenderHelper::Rebuild: rigid render_tris range out of pool");
+    }
+
+    Mesh mesh{};
+    mesh.vertexCount   = static_cast<int>(vertex_count);
+    mesh.triangleCount = static_cast<int>(tri_count);
+
+    mesh.vertices = static_cast<float*>(MemAlloc(vertex_count * 3 * sizeof(float)));
+    mesh.normals  = static_cast<float*>(MemAlloc(vertex_count * 3 * sizeof(float)));
+    mesh.indices  = static_cast<unsigned short*>(MemAlloc(tri_count * 3 * sizeof(unsigned short)));
+
+    if (!mesh.vertices || !mesh.normals || !mesh.indices) {
+        throw std::runtime_error("RenderHelper::Rebuild: MemAlloc failed (rigid)");
+    }
+
+    // fill local positions once
+    for (size_t i = 0; i < vertex_count; ++i) {
+        const Vec3& p = model_->body_render_vertices[rb.info.vertex.begin + i];
+        mesh.vertices[i * 3 + 0] = p.x();
+        mesh.vertices[i * 3 + 1] = p.y();
+        mesh.vertices[i * 3 + 2] = p.z();
+    }
+
+    // indices are local (0..vertex_count - 1)
+    BuildIndicesU16(*model_, rb.info.render_tri, vertex_begin, vertex_count, mesh.indices);
+
+    // compute local normals once
+    ComputeNormalsXYZ(*model_, model_->body_render_vertices, rb.info.render_tri, vertex_begin, vertex_count, mesh.normals);
+
+    // Upload as static: never update vertices/normals each frame
+    UploadMesh(&mesh, false);
+
+    rb.model = LoadModelFromMesh(mesh);
+    rb.model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
+
+    if (IsModelValid(rb.model)) rb.valid = true;
+    rigid_bodies_.push_back(rb);
+}
 
     ready_ = true;
 }
@@ -144,7 +220,7 @@ void RenderHelper::UpdateDynamic(const State& state) const {
         }
 
         FillPositionsXYZ(state, particle_begin, particle_count, mesh.vertices);
-        ComputeNormalsXYZ(*model_, state, rm.info.render_tri, particle_begin, particle_count, mesh.normals);
+        ComputeNormalsXYZ(*model_, state.particle_pos, rm.info.render_tri, particle_begin, particle_count, mesh.normals);
 
         // raylib buffer slots: 0=positions, 2=normals
         UpdateMeshBuffer(mesh, 0, mesh.vertices, mesh.vertexCount * 3 * static_cast<int>(sizeof(float)), 0);
@@ -152,9 +228,10 @@ void RenderHelper::UpdateDynamic(const State& state) const {
     }
 }
 
-void RenderHelper::Draw(const bool is_wire_mode) const {
+void RenderHelper::Draw(const State& state, const bool is_wire_mode) const {
     if (!ready_) return;
 
+    // --- soft bodies ------
     for (const auto& rm : meshes_) {
         if (!rm.valid) continue;
         if (is_wire_mode)
@@ -162,6 +239,29 @@ void RenderHelper::Draw(const bool is_wire_mode) const {
         else
             DrawModel(rm.model, Vector3{0.0f, 0.0f, 0.0f}, 1.0f, WHITE);
     }
+
+    // ----- rigid bodis ----
+    for (const auto& rb : rigid_bodies_) {
+        if (!rb.valid) continue;
+        const size_t b = rb.info.body_id;
+
+        const Vec3& p = state.body_pos[b];
+        const Quat& q = state.body_rot[b];
+
+        Vector3 axis{};
+        float angle_deg{};
+        QuatToAxisAngleDeg(q, axis, angle_deg);
+
+        const auto pos = Vector3{ static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(p.z()) };
+        constexpr auto scl = Vector3{ 1.0f, 1.0f, 1.0f };
+
+        if (is_wire_mode) {
+            DrawModelWiresEx(rb.model, pos, axis, angle_deg, scl, BLACK);
+        } else {
+            DrawModelEx(rb.model, pos, axis, angle_deg, scl, WHITE);
+        }
+    }
+
 }
 
 // ------------------------ math helpers ------------------------
@@ -218,15 +318,44 @@ void RenderHelper::BuildIndicesU16(const MModel& model,
     }
 }
 
+void RenderHelper::QuatToAxisAngleDeg(const Quat &q_in, Vector3 &axis, float& angle_deg) {
+    float w = static_cast<float>(q_in.w());
+    float x = static_cast<float>(q_in.x());
+    float y = static_cast<float>(q_in.y());
+    float z = static_cast<float>(q_in.z());
+
+    // normalize
+    const float n2 = w*w + x*x + y*y + z*z;
+    if (n2 > 0.0f) {
+        const float inv = 1.0f / std::sqrt(n2);
+        w *= inv; x *= inv; y *= inv; z *= inv;
+    }
+
+    // angle
+    const float ww = std::clamp(w, -1.0f, 1.0f);
+    const float angle = 2.0f * std::acos(ww); // rad
+
+    const float s = std::sqrt(std::max(0.0f, 1.0f - ww*ww)); // = sin(angle/2)
+
+    if (s < 1e-6f || angle < 1e-6f) {
+        axis = Vector3{1.0f, 0.0f, 0.0f};
+        angle_deg = 0.0f;
+        return;
+    }
+
+    axis = Vector3{x / s, y / s, z / s};
+    angle_deg = angle * (180.0f / 3.14159265358979323846f);
+}
+
 void RenderHelper::ComputeNormalsXYZ(const MModel& model,
-                                     const State& state,
+                                     const std::span<const Vec3> pos,
                                      const range tri_range,
                                      const size_t particle_begin,
                                      const size_t particle_count,
                                      float* dst_nxyz) {
     if (!dst_nxyz) throw std::runtime_error("ComputeNormalsXYZ: dst null");
-    if (particle_begin + particle_count > state.particle_pos.size()) {
-        throw std::runtime_error("ComputeNormalsXYZ: particle range out of state.particle_pos");
+    if (particle_begin + particle_count > pos.size()) {
+        throw std::runtime_error("ComputeNormalsXYZ: particle range out of particle_pos");
     }
     if (tri_range.end() > model.render_tris.size()) {
         throw std::runtime_error("ComputeNormalsXYZ: tri range out of model.render_tris");
@@ -244,15 +373,15 @@ void RenderHelper::ComputeNormalsXYZ(const MModel& model,
         // 映射到 mesh 局部 index
         if (g0 < particle_begin || g1 < particle_begin || g2 < particle_begin) continue;
 
-        const auto i0 = static_cast<size_t>(g0 - particle_begin);
-        const auto i1 = static_cast<size_t>(g1 - particle_begin);
-        const auto i2 = static_cast<size_t>(g2 - particle_begin);
+        const auto i0 = g0 - particle_begin;
+        const auto i1 = g1 - particle_begin;
+        const auto i2 = g2 - particle_begin;
 
         if (i0 >= particle_count || i1 >= particle_count || i2 >= particle_count) continue;
 
-        const Vec3& p0 = state.particle_pos[particle_begin + i0];
-        const Vec3& p1 = state.particle_pos[particle_begin + i1];
-        const Vec3& p2 = state.particle_pos[particle_begin + i2];
+        const Vec3& p0 = pos[particle_begin + i0];
+        const Vec3& p1 = pos[particle_begin + i1];
+        const Vec3& p2 = pos[particle_begin + i2];
 
         const Vec3 n = (p1 - p0).cross(p2 - p0); // area-weighted
         const float nx = n.x(), ny = n.y(), nz = n.z();

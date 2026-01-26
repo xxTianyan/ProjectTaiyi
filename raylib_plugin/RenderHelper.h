@@ -6,6 +6,7 @@
 #define TAIYI_RENDERHELPER_H
 
 
+#include <span>
 #include <vector>
 #include "raylib.h"
 #include "Model.h" // MModel, State, MeshInfo, range, triangle
@@ -27,7 +28,7 @@ public:
     static bool IsModelValid(const Model& model);
     static void UnloadRLModelSafe(Model& rl_model);
 
-    void Draw(bool is_wire_mode) const;
+    void Draw(const State& state, bool is_wire_mode) const;
     void Shutdown();                 // release all gpu resources
     [[nodiscard]] bool Ready() const { return ready_; }
 
@@ -40,15 +41,24 @@ private:
         bool valid = false;
     };
 
+    struct RenderRigidBody {
+        RigidBodyInfo info{};
+        Model model{};
+        bool valid{false};
+    };
+
 private:
     void Rebuild();   // 用 model_ 重建所有 GPU mesh/model
+
     void UpdateDynamic(const State& state) const;
 
     static void FillPositionsXYZ(const State& state, size_t particle_begin, size_t particle_count, float* dst_xyz);
 
-    static void ComputeNormalsXYZ(const MModel& model, const State& state, range tri_range, size_t particle_begin, size_t particle_count, float* dst_nxyz);
+    static void ComputeNormalsXYZ(const MModel& model, std::span<const Vec3> pos, range tri_range, size_t particle_begin, size_t particle_count, float* dst_nxyz);
 
     static void BuildIndicesU16(const MModel& model,range tri_range, size_t particle_begin, size_t particle_count, unsigned short* dst_indices);
+
+    static void QuatToAxisAngleDeg(const Quat& q_in, Vector3& axis, float& angle_deg);
 
 private:
     const MModel* model_ = nullptr;
@@ -57,6 +67,7 @@ private:
     bool ready_ = false;
 
     std::vector<RenderMesh> meshes_;
+    std::vector<RenderRigidBody> rigid_bodies_;
 };
 
 
