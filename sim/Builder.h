@@ -36,17 +36,6 @@ enum class ClothOrientation {
     Horizontal  //  (XZ Plane)
 };
 
-struct SortedFace {
-    int v[3];
-    SortedFace(int a, int b, int c) {
-        v[0] = a; v[1] = b; v[2] = c;
-        std::sort(std::begin(v), std::end(v));
-    }
-    bool operator<(const SortedFace& other) const {
-        return std::tie(v[0], v[1], v[2]) < std::tie(other.v[0], other.v[1], other.v[2]);
-    }
-};
-
 enum FixSide { NONE = 0, TOP = 1, BOTTOM = 2, LEFT = 4, RIGHT = 8 };
 
 class Builder {
@@ -56,11 +45,14 @@ public:
 
     [[nodiscard]] size_t add_cloth(float width, float height, int resX, int resY, const Vec3& center = Vec3{0.0f,0.0f,0.0f},
     float mass = .1f, ClothOrientation orientation = ClothOrientation::Horizontal, float wave_density = 0.0f, float wave_amp = 0.0f,FixSide fix_mask = FixSide::TOP, const char* = "cloth") const;
+
     [[nodiscard]] size_t add_bunny(float height, float mass) const;
 
     [[nodiscard]] size_t add_single_tet() const;
 
     [[nodiscard]] size_t add_sphere(const float radius,  const int res, const Vec3& center, const float mass, const char* name) const;
+
+    [[nodiscard]] size_t add_rigidbox(const Vec3& center, const Vec3& half_extents, float mass, const Quat& world_rot = Quat::Identity(),const std::string& name = "rigid_box");
 
     // void add_rigidbody();
 
@@ -69,10 +61,11 @@ private:
     MModel& model_;
 
     void PrepareCapacity(size_t num) const;
-    // void PrepareTopologyCapacity(size_t num) const;
 
-    void AddMeshInfo(const char* name, size_t n_particle, size_t n_edge,
+    void AddDeformableBodyInfo(const char* name, size_t n_particle, size_t n_edge,
                 size_t n_tri, const size_t n_render_tri, size_t n_tet) const;
+
+    void AddRigidBodyInfo();
 
     static void CheckVertexLimit(const uint32_t local_particle_count) {
         if (local_particle_count > static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ull) {

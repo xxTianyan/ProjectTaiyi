@@ -36,7 +36,7 @@ public:
 
 private:
     struct RenderMesh {
-        MeshInfo info{}; // value copy
+        DeformableBodyInfo info{}; // value copy
         Model model{};   // raylib owning
         bool valid = false;
     };

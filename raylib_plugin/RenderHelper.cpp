@@ -77,7 +77,7 @@ void RenderHelper::Rebuild() {
 
     meshes_.reserve(model_->mesh_infos.size());
 
-    for (const MeshInfo& info_src : model_->mesh_infos) {
+    for (const DeformableBodyInfo& info_src : model_->mesh_infos) {
         RenderMesh rm{};
         rm.info = info_src;
 

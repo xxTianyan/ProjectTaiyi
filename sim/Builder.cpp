@@ -164,7 +164,7 @@ size_t Builder::add_cloth(const float width, const float height,
         }
     }
 
-    AddMeshInfo(name, local_particle_count, local_edge_count, local_tri_count, local_tri_count, 0);
+    AddDeformableBodyInfo(name, local_particle_count, local_edge_count, local_tri_count, local_tri_count, 0);
 
     // 7. Assign mass and handle fixed boundaries
     for (size_t local_i = 0; local_i < local_particle_count; ++local_i) {
@@ -344,7 +344,7 @@ size_t Builder::add_bunny(float height, const float mass) const {
         }
     }
 
-    AddMeshInfo("bunny", local_particle_count, 0, 0, local_surf_tri_count, local_tet_count);
+    AddDeformableBodyInfo("bunny", local_particle_count, 0, 0, local_surf_tri_count, local_tet_count);
 
     model_.topology_version++;
     return model_.mesh_infos.size() - 1;
@@ -382,7 +382,7 @@ size_t Builder::add_single_tet() const {
     model_.particle_inv_mass[0] = 1.0f;
 
     // add mesh info
-    AddMeshInfo("tet", 4,0, 0, 4,1);
+    AddDeformableBodyInfo("tet", 4,0, 0, 4,1);
 
     model_.topology_version++;
     return model_.mesh_infos.size() - 1;
@@ -549,7 +549,7 @@ size_t Builder::add_sphere(const float radius,
         add_quad_as_tris(get_idx(i+1, j, res), get_idx(i+1, j+1, res), get_idx(i, j+1, res), get_idx(i, j, res));
 
     const auto num_render_tri = model_.render_tris.size() - (model_.mesh_infos.empty() ? 0 : model_.mesh_infos.back().render_tri.end());
-    AddMeshInfo(name, num_particles, 0, 0, num_render_tri, num_tets);
+    AddDeformableBodyInfo(name, num_particles, 0, 0, num_render_tri, num_tets);
 
     // 5. Finalize Mass
     float density_scaling = (total_vol_calculated > 1e-9f) ? (mass / total_vol_calculated) : 0.0f;
@@ -563,10 +563,147 @@ size_t Builder::add_sphere(const float radius,
     return model_.mesh_infos.size() - 1;
 }
 
+static inline Mat3 BoxInertiaBody(float mass, float hx, float hy, float hz) {
+    // box side lengths: Lx=2hx, Ly=2hy, Lz=2hz
+    const float Lx = 2.0f * hx;
+    const float Ly = 2.0f * hy;
+    const float Lz = 2.0f * hz;
+
+    const float Ixx = (mass / 12.0f) * (Ly*Ly + Lz*Lz);
+    const float Iyy = (mass / 12.0f) * (Lx*Lx + Lz*Lz);
+    const float Izz = (mass / 12.0f) * (Lx*Lx + Ly*Ly);
+
+    Mat3 I = Mat3::Zero();
+    I(0,0) = Ixx;
+    I(1,1) = Iyy;
+    I(2,2) = Izz;
+    return I;
+}
+
+static inline Mat3 SafeInvSPD(const Mat3& A, float eps = 1e-12f) {
+    // 只处理对角占优/对角矩阵的常见情况；box inertia 是对角阵
+    Mat3 inv = Mat3::Zero();
+    for (int i = 0; i < 3; ++i) {
+        const float a = static_cast<float>(A(i,i));
+        if (std::abs(a) > eps) inv(i,i) = 1.0f / a;
+    }
+    return inv;
+}
+
+size_t Builder::add_rigidbox(const Vec3 &center, const Vec3 &half_extents, float mass, const Quat &world_rot,
+    const std::string &name) {
+
+const float hx = static_cast<float>(half_extents.x());
+    const float hy = static_cast<float>(half_extents.y());
+    const float hz = static_cast<float>(half_extents.z());
+
+    if (!(hx > 0 && hy > 0 && hz > 0)) {
+        throw std::runtime_error("AddRigidBox: half_extents must be positive");
+    }
+
+    // ----------------- 1) append body -----------------
+    const int body_id = static_cast<int>(model_.num_bodies);
+    model_.num_bodies++;
+
+    // init pose/vel
+    model_.body_pos0.push_back(center);
+    model_.body_rot0.push_back(world_rot);
+
+    // optional init vel arrays: keep consistent length or leave empty (your MakeState handles both)
+    // 这里选择：不强制 push；你也可以 push Vec3::Zero() 保持尺寸一致
+    // model_.body_lin_vel0.push_back(Vec3::Zero());
+    // model_.body_ang_vel0.push_back(Vec3::Zero());
+
+    // mass / inv_mass
+    if (mass > 0.0f) {
+        model_.body_inv_mass.push_back(1.0f / mass);
+    } else {
+        // static/kinematic
+        model_.body_inv_mass.push_back(0.0f);
+    }
+
+    // inertia inverse in BODY frame about COM (COM at origin for this box)
+    if (mass > 0.0f) {
+        const Mat3 I = BoxInertiaBody(mass, hx, hy, hz);
+        const Mat3 invI = SafeInvSPD(I);
+        model_.body_inv_inertia.push_back(invI);
+    } else {
+        model_.body_inv_inertia.push_back(Mat3::Zero());
+    }
+
+    // ----------------- 2) append rigid render mesh (local space) -----------------
+    // We create 24 vertices (4 per face) for sharp edges.
+    const size_t v_begin = model_.body_render_vertices.size();
+    const size_t t_begin = model_.render_tris.size();
+
+    model_.body_render_vertices.reserve(v_begin + 24);
+    model_.render_tris.reserve(t_begin + 12);
+
+    auto push_face = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d) {
+        // vertices for one quad face in CCW order as seen from outside
+        const uint32_t base = static_cast<uint32_t>(model_.body_render_vertices.size() - v_begin);
+        model_.body_render_vertices.push_back(a);
+        model_.body_render_vertices.push_back(b);
+        model_.body_render_vertices.push_back(c);
+        model_.body_render_vertices.push_back(d);
+
+        // two triangles: (0,1,2) (0,2,3)
+        model_.render_tris.push_back({ base + 0, base + 1, base + 2 });
+        model_.render_tris.push_back({ base + 0, base + 2, base + 3 });
+    };
+
+    // corners in body-local, centered at origin
+    const Vec3 p000(-hx, -hy, -hz);
+    const Vec3 p001(-hx, -hy,  hz);
+    const Vec3 p010(-hx,  hy, -hz);
+    const Vec3 p011(-hx,  hy,  hz);
+    const Vec3 p100( hx, -hy, -hz);
+    const Vec3 p101( hx, -hy,  hz);
+    const Vec3 p110( hx,  hy, -hz);
+    const Vec3 p111( hx,  hy,  hz);
+
+    // +X face (outside +X): p100,p101,p111,p110
+    push_face(p100, p101, p111, p110);
+    // -X face (outside -X): p001,p000,p010,p011  (note order to keep outward normal)
+    push_face(p001, p000, p010, p011);
+    // +Y face (outside +Y): p010,p110,p111,p011
+    push_face(p010, p110, p111, p011);
+    // -Y face (outside -Y): p100,p000,p001,p101
+    push_face(p100, p000, p001, p101);
+    // +Z face (outside +Z): p001,p011,p111,p101
+    push_face(p001, p011, p111, p101);
+    // -Z face (outside -Z): p100,p110,p010,p000
+    push_face(p100, p110, p010, p000);
+
+    const size_t v_count = 24;
+    const size_t t_count = 12;
+
+    // sanity
+    if (model_.body_render_vertices.size() != v_begin + v_count) {
+        throw std::runtime_error("AddRigidBox: rigid_render_vertices_local unexpected size");
+    }
+    if (model_.render_tris.size() != t_begin + t_count) {
+        throw std::runtime_error("AddRigidBox: rigid_render_tris unexpected size");
+    }
+
+    // ----------------- 3) body info (ranges) -----------------
+    RigidBodyInfo info;
+    info.name = name;
+    info.body_id = body_id;
+    info.vertex = range{ v_begin, v_count };
+    info.render_tri = range{ t_begin, t_count };
+    info.shapes = range{ 0, 0 }; // collision shapes not built yet
+
+    model_.body_infos.push_back(std::move(info));
+
+    return body_id;
+
+
+
+
+}
+
 void Builder::PrepareCapacity(const size_t num) const {
-    /*
-     * TODO: Need to set different size of topology vec size in the future.
-     */
     ensure_capacity(model_.particle_pos0, num);
     ensure_capacity(model_.particle_vel0, num);
     ensure_capacity(model_.particle_inv_mass, num);
@@ -582,15 +719,16 @@ void Builder::PrepareCapacity(const size_t num) const {
     model_.particle_inv_mass.resize(model_.num_particles);
 }
 
-void Builder::AddMeshInfo(const char* name, const size_t n_particle, const size_t n_edge,
+void Builder::AddDeformableBodyInfo(const char* name, const size_t n_particle, const size_t n_edge,
             const size_t n_tri,  const size_t n_render_tri, const size_t n_tet) const {
 
-    MeshInfo info{};
+    DeformableBodyInfo info{};
     info.name = name;
 
     if (model_.mesh_infos.empty()) {
         info.particle = range{0, n_particle};
         info.edge = range{0, n_edge};
+        info.tri = range{0, n_tri};
         info.render_tri = range{0, n_render_tri};
         info.tet = range{0, n_tet};
     }
@@ -598,11 +736,16 @@ void Builder::AddMeshInfo(const char* name, const size_t n_particle, const size_
         const auto& last_mesh = model_.mesh_infos.back();
         info.particle = range{last_mesh.particle.end(), n_particle};
         info.edge = range{last_mesh.edge.end(), n_edge};
+        info.tri = range{last_mesh.tri.end(), n_tri};
         info.render_tri = range{last_mesh.render_tri.end(), n_render_tri};
         info.tet = range{last_mesh.tet.end(), n_tet};
     }
 
     model_.mesh_infos.emplace_back(info);
+}
+
+void Builder::AddRigidBodyInfo() {
+
 }
 
 

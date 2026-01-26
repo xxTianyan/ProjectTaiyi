@@ -168,7 +168,7 @@ struct edge {
     };
 };
 
-enum class ShapeType : int32_t {
+enum class ShapeType {
     Sphere = 0,
     Box    = 1,
     Capsule= 2,
@@ -182,7 +182,7 @@ struct range {
     [[nodiscard]] size_t end() const { return begin + count;};
 };
 
-struct MeshInfo {
+struct DeformableBodyInfo {
     std::string name;
     range particle;
     range edge;
@@ -194,7 +194,7 @@ struct MeshInfo {
 struct RigidBodyInfo {
     std::string name;
     int body_id;
-    range vertex;  // just vertices of rigid body surface mesh
+    range vertex;  // vertices of rigid body surface mesh
     range shapes;
     range render_tri;
 };
@@ -234,7 +234,7 @@ struct State {
 
 struct MModel {
     // --- deformable body ---
-    std::vector<MeshInfo> mesh_infos;
+    std::vector<DeformableBodyInfo> mesh_infos;
     // topology
     std::vector<tetrahedron> tets;
     std::vector<triangle> tris;
