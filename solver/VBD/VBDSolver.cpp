@@ -56,21 +56,14 @@ inline void compute_projected_isotropic_friction_ipc(
     H_out = k * (P * inv_d - (t * t.transpose()) * inv_d3);
 }
 
-void VBDSolver::Init() {
-
-    const size_t num_nodes = model_.total_particles();
-    if (particle_inertia_.size() != num_nodes) particle_inertia_.resize(num_nodes);
-    if (particle_prev_pos_.size() != num_nodes) particle_prev_pos_.resize(num_nodes);
-    if (particle_contact_force_.size() != num_nodes) particle_contact_force_.resize(num_nodes);
-    if (particle_contact_hessian_.size() != num_nodes) particle_contact_hessian_.resize(num_nodes);
+void VBDSolver::clear() {
 
     std::ranges::fill(particle_contact_force_, Vec3::Zero());
     std::ranges::fill(particle_contact_hessian_, Mat3::Zero());
     std::ranges::fill(particle_prev_pos_, Vec3::Zero());
     std::ranges::fill(particle_inertia_, Vec3::Zero());
 
-    if (model_.topology_version != topology_version_
-        || adjacency_info_.vertex_faces.offsets.size() != num_nodes + 1) {
+    if (model_.topology_version != topology_version_) {
         BuildAdjacencyInfo();
         topology_version_ = model_.topology_version;
 
@@ -81,7 +74,40 @@ void VBDSolver::Init() {
             surface_vertices[tri.vertices[1]] = 1;
             surface_vertices[tri.vertices[2]] = 1;
         }
+
+        // resize vectors
+        const size_t num_nodes = model_.num_particles;
+        particle_inertia_.resize(num_nodes);
+        particle_prev_pos_.resize(num_nodes);
+        particle_contact_force_.resize(num_nodes);
+        particle_contact_hessian_.resize(num_nodes);
+
+        const size_t num_bodies = model_.num_bodies;
+        body_prev_pos_.resize(num_bodies);
+        body_prev_rot_.resize(num_bodies);
+        body_inertia_pos_.resize(num_bodies);
+        body_inertia_rot_.resize(num_bodies);
     }
+}
+
+void VBDSolver::init_particles(State &state_in, const float dt) {
+    if (model_.num_particles == 0) return;
+
+    if (detector_) {
+        detector_->collision_detection(state_in);
+        forward_step_with_penetration(state_in, dt);
+    }
+    else
+        forward_step(state_in, dt);
+
+
+}
+
+void VBDSolver::init_rigid_bodies(State &state_in, const float dt) {
+    if (model_.num_bodies == 0) return;
+
+    forward_step_rigid_bodies(state_in, dt);
+
 }
 
 void VBDSolver::Step(State& state_in, State& state_out, const float dt) {
@@ -90,14 +116,11 @@ void VBDSolver::Step(State& state_in, State& state_out, const float dt) {
         return;
     }
 
-    Init();
+    clear();
 
-    if (detector_) {
-        detector_->collision_detection(state_in);
-        forward_step_with_penetration(state_in, dt);
-    }
-    else
-        forward_step(state_in, dt);
+    init_particles(state_in, dt);
+
+    init_rigid_bodies(state_in, dt);
 
     for (int iter = 0; iter < num_iters; ++iter) {
         ScopeTimer iter_timer = dbg_ ? dbg_->timer_iteration() : ScopeTimer(nullptr);
@@ -558,9 +581,110 @@ void VBDSolver::evaluate_vertex_triangle_contact(const VertexID v, const std::sp
     particle_contact_hessian_[v] += friction_hessian;
 }
 
+VBDSolver::body_state VBDSolver::integrate_rigid_body(const Vec3 &pos, const Quat &rot, const Vec3 &lin_vel, const Vec3 &ang_vel, const Vec3 &force,
+                                                      const Vec3 &torque, const Vec3 &com_local, const float inv_mass,
+                                                      const Mat3 &inertia_tensor, const Mat3& inertia_tensor_inv, const Vec3 &gravity, const float dt) {
+    body_state out{};
+    out.pos     = pos;
+    out.rot     = rot;
+    out.lin_vel = lin_vel;
+    out.ang_vel = ang_vel;
+
+
+    // inv_mass == 0 means infinite mass => solver does not integrate it (pose driven externally).
+    if (inv_mass == 0.0f) {
+        return out;
+    }
+
+    // - Integrate translation at the COM using semi-implicit Euler.
+    // - Integrate rotation using Euler rigid-body equation in BODY frame:
+    //     I * ω̇ + ω × (I ω) = τ
+    // - Convert between WORLD and BODY frames using the quaternion.
+
+    // ----------------------------
+    // 1) Compute world COM position
+    // ----------------------------
+    // x_com0 = x_origin0 + R0 * com_local
+
+    static_assert(Vec3::RowsAtCompileTime == 3 && Vec3::ColsAtCompileTime == 1,
+              "Vec3 must be a fixed-size 3D vector (e.g. Eigen::Vector3f).");
+
+    const Vec3 x_com0 = pos + rot * com_local;     // [WORLD] COM position [m]
+
+    // ----------------------------
+    // 2) Linear (COM) semi-implicit Euler
+    // ----------------------------
+    // a = F/m + g   (gravity only applies to dynamic bodies, and inv_mass!=0 here)
+    const Vec3 a = force * inv_mass + gravity;     // [WORLD] linear acceleration [m/s^2]
+
+    // v1 = v0 + a*dt
+    const Vec3 v1 = lin_vel + a * dt;              // [WORLD] COM linear velocity [m/s]
+
+    // x_com1 = x_com0 + v1*dt
+    const Vec3 x_com1 = x_com0 + v1 * dt;          // [WORLD] COM position [m]
+
+    // ----------------------------
+    // 3) Angular dynamics in BODY frame
+    // ----------------------------
+    // Convert ω and τ from WORLD -> BODY:
+    // ω_body0 = R0^T * ω_world0
+    // τ_body0 = R0^T * τ_world0
+    const Quat rot_inv = rot.conjugate();          // inverse rotation (WORLD->BODY)
+    const Vec3 w_body0   = rot_inv * ang_vel;      // [BODY] angular velocity [rad/s]
+    const Vec3 tau_body0 = rot_inv * torque;       // [BODY] torque about COM [N·m]
+
+    // Gyroscopic / Coriolis term: ω × (I ω)
+    // Effective torque in body frame:
+    // τ_eff = τ - ω × (I ω)
+    const Vec3 gyro = w_body0.cross(inertia_tensor * w_body0);   // [BODY] [N·m]
+    const Vec3 tau_eff = tau_body0 - gyro;                       // [BODY] [N·m]
+
+    // ω_body1 = ω_body0 + I^{-1} * τ_eff * dt
+    const Vec3 w_body1 = w_body0 + (inertia_tensor_inv * tau_eff) * dt; // [BODY] [rad/s]
+
+    // Convert back BODY -> WORLD:
+    // ω_world1 = R0 * ω_body1
+    Vec3 w1 = rot * w_body1;                       // [WORLD] [rad/s]
+
+    // ----------------------------
+    // 4) Integrate quaternion orientation
+    // ----------------------------
+    // Quaternion kinematics:
+    //   q̇ = 0.5 * Ω(ω) ⊗ q
+    // Discrete Euler:
+    //   q1 ≈ normalize(q0 + 0.5*dt * (Ω(ω1) ⊗ q0))
+    //
+    // Here Ω(ω) is a pure quaternion (0, ωx, ωy, ωz).
+    // IMPORTANT: This assumes your Quat multiplication matches the convention:
+    //    q_new = (omega_quat * q_old) ... (left multiply)
+    // which is consistent with Warp's: quat(w1,0) * r0.
+    const Quat omega_quat(0.0f, w1.x(), w1.y(), w1.z());         // pure quaternion
+
+    Quat r1 = rot;
+    r1.coeffs() += (omega_quat * rot).coeffs() * (0.5f * dt);    // Euler step on quaternion
+    r1.normalize();                                              // keep unit quaternion
+
+    // ----------------------------
+    // 5) Reconstruct body-origin position from COM
+    // ----------------------------
+    // We integrated COM position. Convert back to body-origin:
+    // x_origin1 = x_com1 - R1 * com_local
+    const Vec3 x1 = x_com1 - r1 * com_local;      // [WORLD] body-origin position [m]
+
+    // ----------------------------
+    // 6) Pack outputs
+    // ----------------------------
+    out.pos     = x1;   // [WORLD] new body-origin position
+    out.rot     = r1;   // [BODY->WORLD] new orientation
+    out.lin_vel = v1;   // [WORLD] new COM linear velocity
+    out.ang_vel = w1;   // [WORLD] new angular velocity
+
+    return out;
+}
+
 
 void VBDSolver::forward_step(State& state_in, const float dt) {
-    const size_t num_nodes = model_.total_particles();
+    const size_t num_nodes = model_.num_particles;
     const auto& gravity = model_.gravity_;
 
     for (size_t i = 0; i < num_nodes; ++i) {
@@ -579,7 +703,7 @@ void VBDSolver::forward_step(State& state_in, const float dt) {
 }
 
 void VBDSolver::forward_step_with_penetration(State &state_in, const float dt) {
-    const size_t num_nodes = model_.total_particles();
+    const size_t num_nodes = model_.num_particles;
     const auto& gravity = model_.gravity_;
 
     for (size_t i = 0; i < num_nodes; ++i) {
@@ -597,13 +721,125 @@ void VBDSolver::forward_step_with_penetration(State &state_in, const float dt) {
     }
 }
 
+void VBDSolver::forward_step_rigid_bodies(State &state_in, float dt) {
+ const size_t num_bodies = model_.num_bodies;
+
+    // Gravity is an acceleration in WORLD frame [m/s^2]
+    // (In your model it looks like a single gravity vector, not per-world.)
+    const Vec3 g_world = model_.gravity_;
+
+    // -----------------------------
+    // State views (in/out)
+    // -----------------------------
+    auto& pos     = state_in.body_pos;      // [WORLD] body-origin position x [m]
+    auto& rot     = state_in.body_rot;      // [BODY->WORLD] orientation q (unit quaternion)
+    auto& lin_vel = state_in.body_lin_vel;  // [WORLD] COM linear velocity v [m/s]
+    auto& ang_vel = state_in.body_ang_vel;  // [WORLD] angular velocity ω [rad/s]
+
+    // -----------------------------
+    // Model views (read-only)
+    // -----------------------------
+    auto& inv_mass            = model_.body_inv_mass;         // [1/kg], 0 => kinematic/static
+    auto& com_local           = model_.body_local_com;        // [BODY] origin->COM [m]
+    auto& inertia_tensor      = model_.body_inertia;          // [BODY] inertia about COM [kg·m^2]
+    auto& inertia_tensor_inv  = model_.body_inv_inertia;      // [BODY] inverse inertia [(kg·m^2)^-1]
+
+    // External loads for this step (must be already accumulated in WORLD frame)
+    auto& body_force  = state_in.body_force;   // [WORLD] force at COM [N]
+    auto& body_torque = state_in.body_torque;  // [WORLD] torque about COM [N·m]
+
+    // -----------------------------
+    // Outputs/caches (owned by solver)
+    // -----------------------------
+    // body_prev_pos_/rot_ : snapshot of start-of-step pose for velocity update / damping / friction.
+    // body_inertia_pos_/rot_ : inertial target pose q* for AVBD inertial term (predictor output).
+    //
+    // I’m assuming you actually have BOTH position and rotation caches.
+    // If your code currently only has body_inertia_ as Vec3, you should split it into:
+    //   body_inertia_pos_ : std::vector<Vec3>
+    //   body_inertia_rot_ : std::vector<Quat>
+    //
+    // Below I write both; adjust names to your members.
+
+    for (size_t i = 0; i < num_bodies; ++i) {
+        // -----------------------------
+        // A) Snapshot start-of-step pose
+        // -----------------------------
+        // current_pos : body-origin position in WORLD at start of timestep [m]
+        // current_rot : body orientation BODY->WORLD at start of timestep (unit quaternion)
+        const Vec3 current_pos = pos[i];
+        const Quat current_rot = rot[i];
+
+        body_prev_pos_[i] = current_pos;
+        body_prev_rot_[i] = current_rot;
+
+        // -----------------------------
+        // B) Kinematic/static bodies (inv_mass == 0): do not integrate
+        // -----------------------------
+        const float inv_m = inv_mass[i];
+        if (inv_m == 0.0f) {
+            // Inertial target is the current pose (no prediction needed/allowed).
+            body_inertia_pos_[i] = current_pos;
+            body_inertia_rot_[i] = current_rot;
+            continue;
+        }
+
+        // -----------------------------
+        // C) Gather dynamic-body inputs
+        // -----------------------------
+        // These are references (or copies) to the physical state and parameters.
+        const Vec3  &p0   = pos[i];          // [WORLD] body-origin position [m]
+        const Quat  &r0   = rot[i];          // [BODY->WORLD] orientation
+        const Vec3  &v0   = lin_vel[i];      // [WORLD] COM linear velocity [m/s]
+        const Vec3  &w0   = ang_vel[i];      // [WORLD] angular velocity [rad/s]
+
+        const Vec3  &F    = body_force[i];   // [WORLD] net external force at COM [N]
+        const Vec3  &Tau  = body_torque[i];  // [WORLD] net external torque about COM [N·m]
+
+        const Vec3  &com  = com_local[i];    // [BODY] origin->COM [m]
+        const Mat3  &I    = inertia_tensor[i];      // [BODY] inertia about COM [kg·m^2]
+        const Mat3  &invI = inertia_tensor_inv[i];  // [BODY] inverse inertia [(kg·m^2)^-1]
+
+        // -----------------------------
+        // D) Forward integrate (predictor)
+        // -----------------------------
+        // Uses Newton/Warp-aligned semi-implicit Euler + body-frame angular dynamics.
+
+        const body_state pred = integrate_rigid_body(
+            p0, r0,          // pose at start-of-step
+            v0, w0,          // velocities at start-of-step
+            F, Tau,          // external wrench (world)
+            com,             // COM offset (body)
+            inv_m,           // inverse mass
+            I, invI,         // inertia and inverse inertia about COM (body frame)
+            g_world, // gravity (your signature uses non-const refs)
+            dt               // timestep
+        );
+
+        // -----------------------------
+        // E) Write back predicted state
+        // -----------------------------
+        pos[i]     = pred.pos;     // [WORLD] predicted body-origin position
+        rot[i]     = pred.rot;     // [BODY->WORLD] predicted orientation
+        lin_vel[i] = pred.lin_vel; // [WORLD] predicted COM linear velocity
+        ang_vel[i] = pred.ang_vel; // [WORLD] predicted angular velocity
+
+        // -----------------------------
+        // F) Store inertial target pose q* for AVBD inertial term
+        // -----------------------------
+        body_inertia_pos_[i] = pred.pos;
+        body_inertia_rot_[i] = pred.rot;
+    }
+
+}
+
 void VBDSolver::solve(State& state_in, State& state_out, const float dt) {
 
     if (&state_in == &state_out) {
         throw std::runtime_error("VBDSolver::Step requires distinct state_in/state_out.");
     }
 
-    const auto num_nodes = model_.total_particles();
+    const auto num_nodes = model_.num_particles;
 
     // No per-particle radius yet: use a global effective radius
     // Suggest: ~0.25~0.5 * avg_edge_length to avoid deep penetration
@@ -762,7 +998,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) {
 
 void VBDSolver::update_velocity(State& state_out, const float dt) const {
 
-    const auto num_nodes = model_.total_particles();
+    const auto num_nodes = model_.num_particles;
 
     for (size_t i = 0; i < num_nodes; ++i) {
         state_out.particle_vel[i] = (state_out.particle_pos[i] - particle_prev_pos_[i]) / dt ;
@@ -779,7 +1015,7 @@ void VBDSolver::set_self_collision(const float particle_contact_margin, const fl
 }
 
 void VBDSolver::BuildAdjacencyInfo() {
-    const size_t num_nodes = model_.total_particles();
+    const size_t num_nodes = model_.num_particles;
     if (!model_.edges.empty()) {
         BuildVertexIncidentCSR(
             num_nodes,

@@ -11,7 +11,7 @@ int main(){
     constexpr Application::Desc Desc;
     Application app(Desc);
     RegisterAllSamples(app.Registry());
-    app.Run(SampleId::FALLING_BUNNY);
+    app.Run(SampleId::RIGID_BOX);
 
     return 0;
 }

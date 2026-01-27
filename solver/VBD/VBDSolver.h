@@ -34,11 +34,25 @@ public:
     };
 
 private:
-     void Init() override;
+
+    struct body_state {
+        Vec3 pos;
+        Quat rot;
+        Vec3 lin_vel;
+        Vec3 ang_vel;
+    };
+
+     void clear() override;
+
+    void init_particles(State& state_in, float dt);
+
+    void init_rigid_bodies(State& state_in, float dt);
 
     void forward_step(State& state_in, float dt);
 
     void forward_step_with_penetration(State& state_in, float dt);
+
+    void forward_step_rigid_bodies(State& state_in, float dt);
 
     void solve(State& state_in, State& state_out, float dt);
 
@@ -63,6 +77,11 @@ private:
                                           float collision_radius, float collision_stiffness, float collision_damping,
                                           float friction_mu, float friction_epsilon, float dt);
 
+    static body_state integrate_rigid_body(const Vec3 &pos, const Quat &rot, const Vec3 &lin_vel, const Vec3 &ang_vel,
+                                           const Vec3 &force, const Vec3 &torque, const Vec3 &com_local, float inv_mass,
+                                           const Mat3 &inertia_tensor, const Mat3 &inertia_tensor_inv, const Vec3 &gravity,
+                                           float dt);
+
     void BuildAdjacencyInfo();
 
     const MModel&  model_;
@@ -75,12 +94,17 @@ private:
 
     MMaterial material_;
 
+    //  ---- particle ----
     std::vector<Vec3> particle_inertia_;
     std::vector<Vec3> particle_prev_pos_;
     std::vector<Vec3> particle_contact_force_;
     std::vector<Mat3> particle_contact_hessian_;
 
-
+    // ---- rigid body ----
+    std::vector<Vec3> body_prev_pos_;
+    std::vector<Quat> body_prev_rot_;
+    std::vector<Vec3> body_inertia_pos_;
+    std::vector<Quat> body_inertia_rot_;
 
     ForceElementAdjacencyInfo adjacency_info_;
 

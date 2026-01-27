@@ -245,7 +245,6 @@ struct MModel {
     std::vector<float> particle_inv_mass;
 
     size_t num_particles = 0;      // total number of particles
-    [[nodiscard]] inline size_t total_particles() const { return num_particles; }
 
     uint64_t topology_version = 0;
 
@@ -256,7 +255,7 @@ struct MModel {
     std::vector<Vec3> body_lin_vel0;   // optional
     std::vector<Vec3> body_ang_vel0;   // optional
 
-    std::vector<Vec3>  body_com;        // COM in local/body frame
+    std::vector<Vec3>  body_local_com;        // COM in local/body frame
     std::vector<float> body_inv_mass;  // inv_mass==0 => static/kinematic
     std::vector<Mat3>  body_inertia; // inverse inertia in BODY frame
     std::vector<Mat3>  body_inv_inertia; // inverse inertia in BODY frame
@@ -264,7 +263,6 @@ struct MModel {
     std::vector<Vec3> body_render_vertices;  // rigid body render surface vertex local position.
 
     size_t num_bodies = 0;
-    [[nodiscard]] size_t total_bodies() const { return num_bodies; }
 
     // --- shape for rigid body ---
     std::vector<Vec3>  shape_pos0;          // local to body

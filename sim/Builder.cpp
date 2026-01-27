@@ -577,8 +577,10 @@ size_t Builder::add_rigidbox(const Vec3 &center, const Vec3 &half_extents, float
     // 基础状态
     model_.body_pos0.push_back(center);
     model_.body_rot0.push_back(world_rot);
-    // model_.body_lin_vel0.emplace_back(Vec3::Zero()); // 如有需要可取消注释
-    // model_.body_ang_vel0.emplace_back(Vec3::Zero());
+    model_.body_lin_vel0.emplace_back(Vec3::Zero());
+    model_.body_ang_vel0.emplace_back(Vec3::Zero());
+
+    model_.body_local_com.emplace_back(Vec3::Zero());
 
     // 质量与惯性张量 (直接计算逆惯性张量)
     if (mass > 0.0f) {
@@ -592,6 +594,12 @@ size_t Builder::add_rigidbox(const Vec3 &center, const Vec3 &half_extents, float
         const float ly2 = half_extents.y() * half_extents.y();
         const float lz2 = half_extents.z() * half_extents.z();
 
+        Mat3 I = Mat3::Zero();
+        I(0, 0) = c * (ly2 + lz2);
+        I(1, 1) = c * (lx2 + lz2);
+        I(2, 2) = c * (lx2 + ly2);
+        model_.body_inertia.push_back(I);
+
         Mat3 invI = Mat3::Zero();
         invI(0, 0) = 1.0f / (c * (ly2 + lz2));
         invI(1, 1) = 1.0f / (c * (lx2 + lz2));
@@ -600,7 +608,7 @@ size_t Builder::add_rigidbox(const Vec3 &center, const Vec3 &half_extents, float
     } else {
         // 静态/运动学物体
         model_.body_inv_mass.push_back(0.0f);
-        model_.body_inv_inertia.push_back(Mat3::Zero());
+        model_.body_inv_inertia.emplace_back(Mat3::Zero());
     }
 
     // ----------------- 3) Generate Render Mesh (Local Space) -----------------
@@ -628,7 +636,7 @@ size_t Builder::add_rigidbox(const Vec3 &center, const Vec3 &half_extents, float
         const int axis_v = faces[i][2]; // 平面 V 轴
         const float dir = (i % 2 == 0) ? 1.0f : -1.0f; // 轴向方向 (+ 或 -)
 
-        const uint32_t base_idx = static_cast<uint32_t>(model_.body_render_vertices.size() - v_begin);
+        const auto base_idx = static_cast<uint32_t>(model_.body_render_vertices.size() - v_begin);
 
         // 生成当前面的4个顶点
         for (int k = 0; k < 4; ++k) {
@@ -682,8 +690,7 @@ size_t Builder::add_rigidbox(const Vec3 &center, const Vec3 &half_extents, float
 
     model_.body_infos.push_back(std::move(info));
 
-    // rigid body doesn't use topology adjacency
-    // model_.topology_version++;
+    model_.topology_version++;
 
     return body_id;
 }
