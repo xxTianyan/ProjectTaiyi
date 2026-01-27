@@ -11,7 +11,7 @@
 #include <algorithm>
 #include "Types.h"
 #include "Collide.h"
-#include "Contacts.h"
+#include "Contacts.hpp"
 
 struct tetrahedron {
     std::array<VertexID, 4> vertices{0,0,0,0};
@@ -169,11 +169,11 @@ struct edge {
     };
 };
 
-enum class ShapeType {
-    Sphere = 0,
-    Box    = 1,
-    Capsule= 2,
-    Plane  = 3,
+enum class GeoType {
+    PLANE  = 0,
+    SPHERE = 1,
+    BOX    = 2,
+    CAPSULE= 3,
     // SDF etc...
 };
 
@@ -269,15 +269,19 @@ struct MModel {
     std::vector<Vec3>  shape_pos0;          // local to body
     std::vector<Quat>  shape_rot0;          // local to body
     std::vector<int>   shape_body;          // owning body index
-    std::vector<int32_t>  shape_type;       // ShapeType
+    std::vector<int>  shape_type;       // ShapeType
     std::vector<Vec3>  shape_scale;         // non-uniform scale
+    std::vector<float> shape_collision_radius; // bounding sphere radius
+    std::vector<float> shape_contact_margin;   // per-shape margin
+    std::vector<std::pair<size_t, size_t>> shape_contact_pairs;
 
-    std::vector<uint32_t> body_shapes_offsets; // [num_body + 1]
-    std::vector<uint32_t> body_shapes_indices; // flattened list of shape ids
+    std::vector<int> body_shapes_offsets; // [num_body + 1]
+    std::vector<int> body_shapes_indices; // flattened list of shape ids
+
+    size_t num_shapes = 0;
 
     // ---- for rendering ----
     std::vector<render_trangle> render_tris;
-
 
     [[nodiscard]] State MakeState() const {
         State s;

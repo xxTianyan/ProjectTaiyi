@@ -7,14 +7,10 @@
 #include <memory>
 #include <vector>
 
+enum class GeoType;
 struct MModel;
 struct State;
 struct Contacts;
-
-struct ShapePair {
-    int s0{-1};
-    int s1{-1};
-};
 
 struct CollideParams {
     // soft
@@ -54,8 +50,7 @@ public:
     [[nodiscard]] int RigidContactMax() const { return rigid_contact_max_; }
     [[nodiscard]] int SoftContactMax()  const { return soft_contact_max_;  }
 
-    // internal cached contacts (Newton: self.contacts)
-    // 如果你更喜欢 Newton 方式：Collide() 返回引用/指针，也可以打开这个。
+    // internal cached contacts, remember to clear contacts before collide
     Contacts& CollideCached(const MModel& model, const State& state);
 
 private:
@@ -72,6 +67,7 @@ private:
     void GenerateSoftContacts_(const MModel& model, const State& state, Contacts& contacts);
     void BroadphaseRigidPairs_(const MModel& model, const State& state);
     void NarrowphaseRigidContacts_(const MModel& model, const State& state, Contacts& contacts);
+    static int ShapeContactPointCount(GeoType type);
 
 private:
     // --------------------------
@@ -80,8 +76,8 @@ private:
     int shape_count_{0};
     int particle_count_{0};
 
-    // Newton: shape_pairs_filtered (候选 shape pairs 列表)
-    std::vector<ShapePair> shape_pairs_filtered_;
+    // Newton: shape_pairs_filtered, = shape_contact_pair from model
+    std::vector<std::pair<int, int>> shape_pairs_filtered_;
     int shape_pairs_max_{0};
 
     // Capacity strategy (Newton: rigid_contact_max / rigid_contact_max_per_pair / soft_contact_max)
