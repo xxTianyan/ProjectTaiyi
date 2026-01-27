@@ -108,6 +108,8 @@ void VBDSolver::init_rigid_bodies(State &state_in, const float dt) {
 
     forward_step_rigid_bodies(state_in, dt);
 
+    // warm start, contact list, joint ...
+
 }
 
 void VBDSolver::Step(State& state_in, State& state_out, const float dt) {

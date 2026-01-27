@@ -106,6 +106,10 @@ private:
     std::vector<Vec3> body_inertia_pos_;
     std::vector<Quat> body_inertia_rot_;
 
+    std::vector<Vec3> body_contact_force_;
+    std::vector<Mat3> body_contact_hessian_;
+
+
     ForceElementAdjacencyInfo adjacency_info_;
 
     // temporary

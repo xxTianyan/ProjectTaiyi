@@ -10,7 +10,8 @@
 #include <array>
 #include <algorithm>
 #include "Types.h"
-
+#include "Collide.h"
+#include "Contacts.h"
 
 struct tetrahedron {
     std::array<VertexID, 4> vertices{0,0,0,0};
@@ -305,6 +306,12 @@ struct MModel {
 
     // global
     Vec3 gravity_{};
+
+
+    // collide
+    std::unique_ptr<CollisionPipeline> collision_pipeline_;
+    Contacts& Collide(const State& state_in, const CollideParams& params);
+
 };
 
 
