@@ -37,7 +37,7 @@ public:
         ShaderManager::BindMatrices(bunny_shader);
         ShaderManager::SetCommonShaderParams(bunny_shader);
         bunny_shader.locs[SHADER_LOC_MAP_DIFFUSE] = GetShaderLocation(bunny_shader, "texture0");
-        auto m_bunny_model = renderHelper_.GetRLModel(m_bunny_id_);
+        auto m_bunny_model = renderHelper_.GetRLModel_d(m_bunny_id_);
         m_bunny_model.materials[0].shader = bunny_shader;
         m_bunny_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
     };

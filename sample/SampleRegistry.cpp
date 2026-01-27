@@ -8,6 +8,7 @@
 #include "hanging_cloth.hpp"
 #include "falling_bunny.hpp"
 #include "falling_cloth.hpp"
+#include "rigid_box.hpp"
 #include "rubber_ball.hpp"
 
 void RegisterAllSamples(SampleRegistry& reg) {
@@ -27,4 +28,7 @@ void RegisterAllSamples(SampleRegistry& reg) {
 
     reg.Register(SampleId::FALLING_CLOTH, "Falling Cloth",
         []()->SamplePtr {return std::make_unique<FallingCloth>();});
+
+    reg.Register(SampleId::RIGID_BOX, "Rigid Box",
+        []()->SamplePtr {return std::make_unique<RigidBox>();});
 }

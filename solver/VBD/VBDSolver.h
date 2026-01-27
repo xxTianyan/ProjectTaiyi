@@ -75,10 +75,12 @@ private:
 
     MMaterial material_;
 
-    std::vector<Vec3> inertia_;
-    std::vector<Vec3> prev_pos_;
-    std::vector<Vec3> contact_force_;
-    std::vector<Mat3> contact_hessian_;
+    std::vector<Vec3> particle_inertia_;
+    std::vector<Vec3> particle_prev_pos_;
+    std::vector<Vec3> particle_contact_force_;
+    std::vector<Mat3> particle_contact_hessian_;
+
+
 
     ForceElementAdjacencyInfo adjacency_info_;
 

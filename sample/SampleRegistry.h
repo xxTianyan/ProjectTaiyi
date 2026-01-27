@@ -19,6 +19,7 @@ enum SampleId : int {
     FALLING_BUNNY,
     RUBBER_BALL,
     FALLING_CLOTH,
+    RIGID_BOX,
 };
 
 struct SampleInfo {

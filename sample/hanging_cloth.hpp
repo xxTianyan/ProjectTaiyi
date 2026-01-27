@@ -54,7 +54,7 @@ public:
         ShaderManager::BindMatrices(cloth_shader);
         ShaderManager::SetCommonShaderParams(cloth_shader);
         cloth_shader.locs[SHADER_LOC_MAP_DIFFUSE] = GetShaderLocation(cloth_shader, "texture0");
-        auto m_cloth_model = renderHelper_.GetRLModel(m_cloth_id_);
+        auto m_cloth_model = renderHelper_.GetRLModel_d(m_cloth_id_);
         m_cloth_model.materials[0].shader = cloth_shader;
         m_cloth_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
         // m_cloth.materials[0].maps[MATERIAL_MAP_ALBEDO].texture = clothAlbedoTex;          // if texture

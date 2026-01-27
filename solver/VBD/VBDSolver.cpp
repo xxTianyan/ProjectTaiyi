@@ -59,15 +59,15 @@ inline void compute_projected_isotropic_friction_ipc(
 void VBDSolver::Init() {
 
     const size_t num_nodes = model_.total_particles();
-    if (inertia_.size() != num_nodes) inertia_.resize(num_nodes);
-    if (prev_pos_.size() != num_nodes) prev_pos_.resize(num_nodes);
-    if (contact_force_.size() != num_nodes) contact_force_.resize(num_nodes);
-    if (contact_hessian_.size() != num_nodes) contact_hessian_.resize(num_nodes);
+    if (particle_inertia_.size() != num_nodes) particle_inertia_.resize(num_nodes);
+    if (particle_prev_pos_.size() != num_nodes) particle_prev_pos_.resize(num_nodes);
+    if (particle_contact_force_.size() != num_nodes) particle_contact_force_.resize(num_nodes);
+    if (particle_contact_hessian_.size() != num_nodes) particle_contact_hessian_.resize(num_nodes);
 
-    std::ranges::fill(contact_force_, Vec3::Zero());
-    std::ranges::fill(contact_hessian_, Mat3::Zero());
-    std::ranges::fill(prev_pos_, Vec3::Zero());
-    std::ranges::fill(inertia_, Vec3::Zero());
+    std::ranges::fill(particle_contact_force_, Vec3::Zero());
+    std::ranges::fill(particle_contact_hessian_, Mat3::Zero());
+    std::ranges::fill(particle_prev_pos_, Vec3::Zero());
+    std::ranges::fill(particle_inertia_, Vec3::Zero());
 
     if (model_.topology_version != topology_version_
         || adjacency_info_.vertex_faces.offsets.size() != num_nodes + 1) {
@@ -75,7 +75,7 @@ void VBDSolver::Init() {
         topology_version_ = model_.topology_version;
 
         // record surface vertex
-        surface_vertices.resize(model_.num_particles, 0);
+        surface_vertices.resize(model_.render_tris.size()*3, 0);
         for (const auto& tri: model_.render_tris) {
             surface_vertices[tri.vertices[0]] = 1;
             surface_vertices[tri.vertices[1]] = 1;
@@ -495,19 +495,19 @@ void VBDSolver::evaluate_vertex_triangle_contact(const VertexID v, const std::sp
     const Mat3 normal_hessian = d2E_dDdD * (n * n.transpose());
 
     // add to store vector
-    contact_force_[ia] += -bary.x() * normal_force;
-    contact_force_[ib] += -bary.y() * normal_force;
-    contact_force_[ic] += -bary.z() * normal_force;
-    contact_force_[v] += normal_force;
+    particle_contact_force_[ia] += -bary.x() * normal_force;
+    particle_contact_force_[ib] += -bary.y() * normal_force;
+    particle_contact_force_[ic] += -bary.z() * normal_force;
+    particle_contact_force_[v] += normal_force;
 
-    contact_hessian_[ia] += bary.x() * bary.x() * normal_hessian;
-    contact_hessian_[ib] += bary.y() * bary.y() * normal_hessian;
-    contact_hessian_[ic] += bary.z() * bary.z() * normal_hessian;
-    contact_hessian_[v] += normal_hessian;
+    particle_contact_hessian_[ia] += bary.x() * bary.x() * normal_hessian;
+    particle_contact_hessian_[ib] += bary.y() * bary.y() * normal_hessian;
+    particle_contact_hessian_[ic] += bary.z() * bary.z() * normal_hessian;
+    particle_contact_hessian_[v] += normal_hessian;
 
     // damping force and hessian
-    const Vec3 dp = prev_pos_[v] - p;
-    const Vec3 dq = prev_pos_[ia] * bary.x() + prev_pos_[ib] * bary.y() + prev_pos_[ic] * bary.z() - q;
+    const Vec3 dp = particle_prev_pos_[v] - p;
+    const Vec3 dq = particle_prev_pos_[ia] * bary.x() + particle_prev_pos_[ib] * bary.y() + particle_prev_pos_[ic] * bary.z() - q;
     const Vec3 rel_disp = dp - dq;
 
     Vec3 damping_force;
@@ -515,15 +515,15 @@ void VBDSolver::evaluate_vertex_triangle_contact(const VertexID v, const std::sp
     damp_collision(rel_disp, n, normal_hessian, collision_damping, dt, damping_force, damping_hessian);
 
     // add to store vector
-    contact_force_[ia] += -bary.x() * damping_force;
-    contact_force_[ib] += -bary.y() * damping_force;
-    contact_force_[ic] += -bary.z() * damping_force;
-    contact_force_[v] += damping_force;
+    particle_contact_force_[ia] += -bary.x() * damping_force;
+    particle_contact_force_[ib] += -bary.y() * damping_force;
+    particle_contact_force_[ic] += -bary.z() * damping_force;
+    particle_contact_force_[v] += damping_force;
 
-    contact_hessian_[ia] += bary.x() * bary.x() * damping_hessian;
-    contact_hessian_[ib] += bary.y() * bary.y() * damping_hessian;
-    contact_hessian_[ic] += bary.z() * bary.z() * damping_hessian;
-    contact_hessian_[v] += damping_hessian;
+    particle_contact_hessian_[ia] += bary.x() * bary.x() * damping_hessian;
+    particle_contact_hessian_[ib] += bary.y() * bary.y() * damping_hessian;
+    particle_contact_hessian_[ic] += bary.z() * bary.z() * damping_hessian;
+    particle_contact_hessian_[v] += damping_hessian;
 
     // friction
     Vec3 t1, t2;
@@ -547,15 +547,15 @@ void VBDSolver::evaluate_vertex_triangle_contact(const VertexID v, const std::sp
     compute_friction(friction_mu, normal_contact_force, T, u, friction_epsilon, friction_force, friction_hessian);
 
     //store to vector
-    contact_force_[ia] += -bary.x() * friction_force;
-    contact_force_[ib] += -bary.y() * friction_force;
-    contact_force_[ic] += -bary.z() * friction_force;
-    contact_force_[v] += friction_force;
+    particle_contact_force_[ia] += -bary.x() * friction_force;
+    particle_contact_force_[ib] += -bary.y() * friction_force;
+    particle_contact_force_[ic] += -bary.z() * friction_force;
+    particle_contact_force_[v] += friction_force;
 
-    contact_hessian_[ia] += bary.x() * bary.x() * friction_hessian;
-    contact_hessian_[ib] += bary.y() * bary.y() * friction_hessian;
-    contact_hessian_[ic] += bary.z() * bary.z() * friction_hessian;
-    contact_hessian_[v] += friction_hessian;
+    particle_contact_hessian_[ia] += bary.x() * bary.x() * friction_hessian;
+    particle_contact_hessian_[ib] += bary.y() * bary.y() * friction_hessian;
+    particle_contact_hessian_[ic] += bary.z() * bary.z() * friction_hessian;
+    particle_contact_hessian_[v] += friction_hessian;
 }
 
 
@@ -564,17 +564,17 @@ void VBDSolver::forward_step(State& state_in, const float dt) {
     const auto& gravity = model_.gravity_;
 
     for (size_t i = 0; i < num_nodes; ++i) {
-        prev_pos_[i] = state_in.particle_pos[i];
+        particle_prev_pos_[i] = state_in.particle_pos[i];
 
         const float inv_mass = model_.particle_inv_mass[i];
         if (inv_mass == 0) {
-            inertia_[i] = state_in.particle_pos[i];
+            particle_inertia_[i] = state_in.particle_pos[i];
             continue;
         }
 
         const Vec3 vel_new = state_in.particle_vel[i] + (state_in.particle_force[i] * inv_mass * dt) + gravity * dt;
         state_in.particle_pos[i] = state_in.particle_pos[i] + vel_new * dt;
-        inertia_[i] = state_in.particle_pos[i];
+        particle_inertia_[i] = state_in.particle_pos[i];
     }
 }
 
@@ -583,17 +583,17 @@ void VBDSolver::forward_step_with_penetration(State &state_in, const float dt) {
     const auto& gravity = model_.gravity_;
 
     for (size_t i = 0; i < num_nodes; ++i) {
-        prev_pos_[i] = state_in.particle_pos[i];
+        particle_prev_pos_[i] = state_in.particle_pos[i];
 
         const float inv_mass = model_.particle_inv_mass[i];
         if (inv_mass == 0) {
-            inertia_[i] = state_in.particle_pos[i];
+            particle_inertia_[i] = state_in.particle_pos[i];
             continue;
         }
 
         const Vec3 vel_new = state_in.particle_vel[i] + (state_in.particle_force[i] * inv_mass * dt) + gravity * dt;
-        inertia_[i] = state_in.particle_pos[i] + vel_new * dt;
-        state_in.particle_pos[i] = detector_->apply_conservative_bounds(i, inertia_[i]);
+        particle_inertia_[i] = state_in.particle_pos[i] + vel_new * dt;
+        state_in.particle_pos[i] = detector_->apply_conservative_bounds(i, particle_inertia_[i]);
     }
 }
 
@@ -624,7 +624,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) {
         const auto& edge_adjacency = adjacency_info_.vertex_edges;
         const auto& tet_adjacency = adjacency_info_.vertex_tets;
 
-        const Vec3 inertia_force = -(pos - inertia_[vtex_id]) / (inv_mass * dt * dt);
+        const Vec3 inertia_force = -(pos - particle_inertia_[vtex_id]) / (inv_mass * dt * dt);
         const Mat3 inertia_hessian = Mat3::Identity() / (inv_mass * dt * dt);
 
         Vec3 contact_force = Vec3::Zero();
@@ -652,7 +652,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) {
 
             evaluate_static_plane_particle_contact(
                 pos,                       // current iterate position
-                prev_pos_[vtex_id],      // finite-diff reference
+                particle_prev_pos_[vtex_id],      // finite-diff reference
                 plane_p, plane_n,
                 radius,
                 ke, kd_ratio,
@@ -726,8 +726,8 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) {
 
         Vec3 dx{};
 
-        Vec3 force = inertia_force + dihedral_angle_force + stvk_tri_force + NH_force + contact_force + contact_force_[vtex_id];
-        Mat3 hessian = inertia_hessian + dihedral_angle_hessian + stvk_tri_hessian + NH_hessian + contact_hessian + contact_hessian_[vtex_id];
+        Vec3 force = inertia_force + dihedral_angle_force + stvk_tri_force + NH_force + contact_force + particle_contact_force_[vtex_id];
+        Mat3 hessian = inertia_hessian + dihedral_angle_hessian + stvk_tri_hessian + NH_hessian + contact_hessian + particle_contact_hessian_[vtex_id];
 
         {
             ScopeTimer liner_solve_timer = dbg_ ? dbg_->timer_linear_solve() : ScopeTimer(nullptr);
@@ -765,7 +765,7 @@ void VBDSolver::update_velocity(State& state_out, const float dt) const {
     const auto num_nodes = model_.total_particles();
 
     for (size_t i = 0; i < num_nodes; ++i) {
-        state_out.particle_vel[i] = (state_out.particle_pos[i] - prev_pos_[i]) / dt ;
+        state_out.particle_vel[i] = (state_out.particle_pos[i] - particle_prev_pos_[i]) / dt ;
     }
 }
 

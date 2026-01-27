@@ -65,8 +65,12 @@ void RenderHelper::UnloadRLModelSafe(Model &rl_model) {
     }
 }
 
-Model& RenderHelper::GetRLModel(const size_t mesh_id) {
+Model& RenderHelper::GetRLModel_d(const size_t mesh_id) {
     return meshes_[mesh_id].model;
+}
+
+Model & RenderHelper::GetRLModel_r(size_t mesh_id) {
+    return rigid_bodies_[mesh_id].model;
 }
 
 void RenderHelper::Rebuild() {
