@@ -12,17 +12,63 @@ inline Vec3 ClosestPointPlane_Local(float sx, float sz, const Vec3& p_local) {
     return {x, 0.0f, z};
 }
 
-void CollisionPipeline::BroadphaseRigidPairs_(const MModel &model, const State &state) {
+void CollisionPipeline::BuildFromModel(const MModel &model, const CollideParams &params) {
+
+    shape_count_ = model.num_shapes;
+    particle_count_ = model.num_particles;
+
+    const size_t num_shape_pair = model.shape_contact_pairs.size();
+
+    shape_contact_pair.assign(model.shape_contact_pairs.begin(), model.shape_contact_pairs.end());
+
+    // rigid capacity
+    if (params.rigid_contact_max_per_pair > 0)
+        rigid_contact_max_per_pair_ = params.rigid_contact_max_per_pair;
+    else
+        rigid_contact_max_per_pair_ = 0;
+
+    if (params.rigid_contact_max > 0)
+        rigid_contact_max_ = params.rigid_contact_max;
+    else
+        rigid_contact_max_ = rigid_contact_max_per_pair_ * num_shape_pair;
+
+    if (rigid_contact_max_ <= 0)
+        throw std::runtime_error("Collide: rigid_contact_max_ incorrect setting.");
+
+    // soft capacity
+    if (params.soft_contact_max <= 0) {
+        long long prod = 1LL * shape_count_ * particle_count_;
+        if (prod > static_cast<long long>(std::numeric_limits<int>::max()))
+            prod = static_cast<long long>(std::numeric_limits<int>::max());
+        soft_contact_max_ = static_cast<int>(prod);
+    }else
+        soft_contact_max_ = params.soft_contact_max;
+
+    soft_contact_margin_ = params.soft_contact_margin;
+    edge_sdf_iter_ = params.edge_sdf_iter;
+
+    rigid_pair_shape0_.assign(rigid_contact_max_, -1);
+    rigid_pair_shape1_.assign(rigid_contact_max_, -1);
+    rigid_pair_point_id_.assign(rigid_contact_max_, -1);
+
+    // create contacts
+    if (cached_contacts_ == nullptr)
+        cached_contacts_ = std::make_unique<Contacts>(rigid_contact_max_, soft_contact_max_);
+
+    topology_version = model.topology_version;
+}
+
+void CollisionPipeline::BroadPhaseRigidPairs_(const MModel &model, const State &state) {
     if (!cached_contacts_) cached_contacts_ = std::make_unique<Contacts>();
 
     const auto num_shapes = static_cast<int>(model.num_shapes);
 
     // boundary check
     if (num_shapes <= 0) return;
-    if (shape_pairs_filtered_.empty()) return;
+    if (shape_contact_pair.empty()) return;
     if (rigid_contact_max_ <= 0) return;
 
-    for (auto [shape_a, shape_b] : shape_pairs_filtered_) {
+    for (auto [shape_a, shape_b] : shape_contact_pair) {
         if (shape_a < 0 || shape_a >= num_shapes || shape_b < 0 || shape_b >= num_shapes)
             throw std::runtime_error("Invalid shape pair appear");
 
@@ -109,8 +155,8 @@ void CollisionPipeline::BroadphaseRigidPairs_(const MModel &model, const State &
             num_contacts_b = ShapeContactPointCount(geo_b);
         }
 
-        // assign a limit per rigid contact pair, if max_per_pair is set
-        if (rigid_contact_max_per_pair_ > 0) {
+        // assign a limit contacts num for each rigid contact pair, if flag is on, currently useless
+        /*if (rigid_contact_max_per_pair_ > 0) {
             const int half = rigid_contact_max_per_pair_ / 2;
             if (num_contacts_b > 0) {
                 rigid_pair_point_limit_[pair_index_ab] = half;
@@ -122,16 +168,48 @@ void CollisionPipeline::BroadphaseRigidPairs_(const MModel &model, const State &
         } else {
             rigid_pair_point_limit_[pair_index_ab] = 0;
             rigid_pair_point_limit_[pair_index_ba] = 0;
-        }
+        }*/
 
         // allocate contact points
         const bool _success = AllocateContactPoints(num_contacts_a, num_contacts_b, shape_a, shape_b);
         if (!_success)
             break;
     }
+}
+
+void CollisionPipeline::NarrowPhaseRigidContacts_(const MModel &model, const State &state) {
+    if (cached_contacts_ == nullptr) return;
+
+    // const size_t num_shapes = model.num_shapes;
+
+    for (int i = 0; i < rigid_contact_max_; i++) {
+        const int shape_a = rigid_pair_shape0_[i];
+        const int shape_b = rigid_pair_shape1_[i];
+
+        if (shape_a < 0 || shape_b < 0) continue;
+        if (shape_a == shape_b) continue;
+
+        if (rigid_contact_max_per_pair_ > 0) {
+            // pairwise limit, currently empty
+        }
+
+        const int point_id = rigid_pair_point_id_[i];
+
+        const GeoData geo_a = GeoData::CreateGeoData(shape_a, model, state);
+        const GeoData geo_b = GeoData::CreateGeoData(shape_b, model, state);
+
+        const float rigid_contact_margin = model.shape_contact_margin[shape_a] + model.shape_contact_margin[shape_b];
+
+        // ----- narrow phase dispatch -------
+
+
+
+    }
+
+
 };
 
-bool CollisionPipeline::AllocateContactPoints(int num_contacts_a, int num_contacts_b, int shape_a, int shape_b) const {
+bool CollisionPipeline::AllocateContactPoints(const int num_contacts_a, const int num_contacts_b, const int shape_a, const int shape_b) {
 
     const int num_contacts = num_contacts_a + num_contacts_b;
 
@@ -145,26 +223,21 @@ bool CollisionPipeline::AllocateContactPoints(int num_contacts_a, int num_contac
 
     io_contact_count += num_contacts;
 
-    auto& contact_shape0 = cached_contacts_->rigid_contact_shape0;
-    auto& contact_shape1 = cached_contacts_->rigid_contact_shape1;
-    auto& contact_point_id = cached_contacts_->rigid_contact_point_id;
-
     // add pair contact point to rigid_pair_point_count vector in the future if needed.
-
     // allocate contact points from shape A -> B
     for (int i = 0; i < num_contacts_a; ++i) {
         const int cp_index = index + i;
-        contact_shape0[cp_index] = shape_a;
-        contact_shape1[cp_index] = shape_b;
-        contact_point_id[cp_index] = i;
+        rigid_pair_shape0_[cp_index] = shape_a;
+        rigid_pair_shape1_[cp_index] = shape_b;
+        rigid_pair_point_id_[cp_index] = i;
     }
 
     // allocate contact points from shape B -> A
     for (int i = 0; i < num_contacts_b; ++i) {
         const int cp_index = index + num_contacts_a + i;
-        contact_shape0[cp_index] = shape_b;
-        contact_shape1[cp_index] = shape_a;
-        contact_point_id[cp_index] = i;
+        rigid_pair_shape0_[cp_index] = shape_b;
+        rigid_pair_shape1_[cp_index] = shape_a;
+        rigid_pair_point_id_[cp_index] = i;
     }
 
     return true;

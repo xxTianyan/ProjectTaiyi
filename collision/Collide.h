@@ -18,8 +18,9 @@ struct CollideParams {
     float soft_contact_margin = 0.01f;
     int   edge_sdf_iter       = 10;
 
-    // capacity controls
-    int rigid_contact_max_per_pair = -1; // -1 mean unlimited
+    // capacity controls,  -1 means unlimited
+    int rigid_contact_max          = -1;
+    int rigid_contact_max_per_pair = -1;
     int soft_contact_max           = -1;
 
     // debug / perf
@@ -35,15 +36,15 @@ public:
     CollisionPipeline& operator=(const CollisionPipeline&) = delete;
 
     // Build pipeline from model (allocate buffers, copy filtered pairs, etc.)
-    // 对齐 Newton: CollisionPipeline.from_model(...)
+    // make contact ptr in this function.
     void BuildFromModel(const MModel& model, const CollideParams& params);
 
     // Ensure internal buffers match model (shape count changed / filtered pairs changed / topology version changed)
     void EnsureUpToDate(const MModel& model, const CollideParams& params);
 
     // Update per-call parameters (Newton: self.soft_contact_margin, self.edge_sdf_iter)
-    void SetSoftContactMargin(float m) { soft_contact_margin_ = m; }
-    void SetEdgeSdfIter(int iters)     { edge_sdf_iter_ = std::max(0, iters); }
+    void SetSoftContactMargin(const float m) { soft_contact_margin_ = m; }
+    void SetEdgeSdfIter(const int iters)     { edge_sdf_iter_ = std::max(0, iters); }
 
     [[nodiscard]] int ShapeCount()    const { return shape_count_; }
     [[nodiscard]] int ParticleCount() const { return particle_count_; }
@@ -51,66 +52,56 @@ public:
     [[nodiscard]] int RigidContactMax() const { return rigid_contact_max_; }
     [[nodiscard]] int SoftContactMax()  const { return soft_contact_max_;  }
 
-    // internal cached contacts, remember to clear contacts before collide
-    Contacts& CollideCached(const MModel& model, const State& state);
+    /* internal cached contacts
+     * NOTE:
+     * 1. need topology version check
+     * 2. need to clear contact first
+     */
+
+    Contacts& Collide(const MModel& model, const State& state);
 
 private:
-    // --------------------------
-    // Internal buffer management
-    // --------------------------
-    void AllocateOrResize_(const CollideParams& params);
-    void ClearPairBuffers_();
-    void ClearCachedContacts_();
 
-    // --------------------------
     // Pipeline stages
-    // --------------------------
-    void GenerateSoftContacts_(const MModel& model, const State& state, Contacts& contacts);
-    void BroadphaseRigidPairs_(const MModel& model, const State& state);
-    void NarrowphaseRigidContacts_(const MModel& model, const State& state, Contacts& contacts);
-
-    bool AllocateContactPoints(int num_contacts_a, int num_contacts_b, int shape_a, int shape_b) const;
+    void GenerateSoftContacts_(const MModel& model, const State& state);
+    void BroadPhaseRigidPairs_(const MModel& model, const State& state);
+    void NarrowPhaseRigidContacts_(const MModel& model, const State& state);
 
     static int ShapeContactPointCount(GeoType type);
 
 private:
-    // --------------------------
+    bool AllocateContactPoints(int num_contacts_a, int num_contacts_b, int shape_a, int shape_b);
+
+private:
     // Immutable-ish after build
-    // --------------------------
     int shape_count_{0};
     int particle_count_{0};
 
-    // Newton: shape_pairs_filtered, = shape_contact_pair from model
-    std::vector<std::pair<int, int>> shape_pairs_filtered_;
-    int shape_pairs_max_{0};
+    // shape_contact_pair from model
+    std::vector<std::pair<int, int>> shape_contact_pair;
 
-    // Capacity strategy (Newton: rigid_contact_max / rigid_contact_max_per_pair / soft_contact_max)
+    // Capacity strategy
     int rigid_contact_max_{0};
-    int rigid_contact_max_per_pair_{0}; // 0 表示“不限制 per pair”，贴 Newton
+    int rigid_contact_max_per_pair_{0}; // 0 means no limit
     int soft_contact_max_{0};
 
     // Dynamic per-call params
     float soft_contact_margin_{0.01f};
     int edge_sdf_iter_{10};
 
-    // --------------------------
-    // Broadphase pair buffers (Newton: rigid_pair_*)
-    // --------------------------
-    // 长度 = rigid_contact_max_
+    // broad phase pair buffers, length = rigid_contact_max_
     std::vector<int> rigid_pair_shape0_;
     std::vector<int> rigid_pair_shape1_;
     std::vector<int> rigid_pair_point_id_;
 
     // per-pair control (currently not use)
+    // std::vector<int> rigid_pair_point_limit_; // now empty
+    // std::vector<int> rigid_pair_point_count_; // now empty
 
-    std::vector<int> rigid_pair_point_limit_; // 可为空
-    std::vector<int> rigid_pair_point_count_; // 可为空
-
-    // --------------------------
-    // Cached contacts (Newton: self.contacts)
-    // --------------------------
+    // Cached contacts
     std::unique_ptr<Contacts> cached_contacts_;
-    bool cache_enabled_{true};
+
+    uint64_t topology_version = 0;
 };
 
 #endif //TAIYI_COLLIDE_H

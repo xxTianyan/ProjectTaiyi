@@ -104,8 +104,9 @@ struct MModel {
     std::vector<Vec3>  shape_pos0;          // local to body
     std::vector<Quat>  shape_rot0;          // local to body
     std::vector<int>   shape_body;          // owning body index
-    std::vector<int>  shape_type;       // ShapeType
+    std::vector<int>  shape_type;           // ShapeType
     std::vector<Vec3>  shape_scale;         // non-uniform scale
+    std::vector<float> shape_thickness;     // shape padding
     std::vector<float> shape_collision_radius; // bounding sphere radius
     std::vector<float> shape_contact_margin;   // per-shape margin
     std::vector<std::pair<size_t, size_t>> shape_contact_pairs;
@@ -149,7 +150,7 @@ struct MModel {
 
     // collide
     std::unique_ptr<CollisionPipeline> collision_pipeline_;
-    Contacts& Collide(const State& state_in, const CollideParams& params);
+    Contacts& collide(const State& state_in, const CollideParams& params);
 
 };
 

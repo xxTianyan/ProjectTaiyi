@@ -10,9 +10,8 @@
 #include "Types.h"
 
 struct Contacts {
-// ----------------------------
+
     // configuration
-    // ----------------------------
     bool per_contact_shape_properties{false};
     bool clear_buffers{false};
     bool requires_grad{false};
@@ -30,9 +29,8 @@ struct Contacts {
     [[nodiscard]] std::int32_t& soft_contact_count() noexcept { return counter_[1]; }
     [[nodiscard]] std::int32_t  soft_contact_count() const noexcept { return counter_[1]; }
 
-    // ============================================================
     // rigid contacts (shape-shape)
-    // ============================================================
+    // manifold: shape / point / offset/ normal / thickness
     std::vector<std::int32_t> rigid_contact_point_id;
     std::vector<std::int32_t> rigid_contact_shape0;
     std::vector<std::int32_t> rigid_contact_shape1;
@@ -46,19 +44,12 @@ struct Contacts {
     std::vector<float> rigid_contact_thickness0;
     std::vector<float> rigid_contact_thickness1;
 
-    // std::vector<std::int32_t> rigid_contact_tids;
-
-    // to be filled by solver (Newton: currently unused)
-    std::vector<Vec3> rigid_contact_force;
-
     // per-contact shape properties (optional)
     std::vector<float> rigid_contact_stiffness; // ke
     std::vector<float> rigid_contact_damping;   // kd
     std::vector<float> rigid_contact_friction;  // mu
 
-    // ============================================================
     // soft contacts (particle-shape)
-    // ============================================================
     std::vector<std::int32_t> soft_contact_particle;
     std::vector<std::int32_t> soft_contact_shape;
 
@@ -66,27 +57,25 @@ struct Contacts {
     std::vector<Vec3> soft_contact_body_vel;
     std::vector<Vec3> soft_contact_normal;
 
-    // std::vector<std::int32_t> soft_contact_tids;
-
     // ----------------------------
     // ctor / init
     // ----------------------------
     Contacts() = default;
 
-    Contacts(std::int32_t rigidMax,
-             std::int32_t softMax,
-             bool requiresGrad = false,
-             bool perContactProps = false,
-             bool clearBuffers = false)
+    Contacts(const std::int32_t rigidMax,
+             const std::int32_t softMax,
+             const bool requiresGrad = false,
+             const bool perContactProps = false,
+             const bool clearBuffers = false)
     {
         init(rigidMax, softMax, requiresGrad, perContactProps, clearBuffers);
     }
 
-    void init(std::int32_t rigidMax,
-              std::int32_t softMax,
-              bool requiresGrad = false,
-              bool perContactProps = false,
-              bool clearBuffers = false)
+    void init(const std::int32_t rigidMax,
+              const std::int32_t softMax,
+              const bool requiresGrad = false,
+              const bool perContactProps = false,
+              const bool clearBuffers = true)
     {
         if (rigidMax < 0 || softMax < 0)
             throw std::runtime_error("Contacts::init: max < 0");
@@ -99,7 +88,7 @@ struct Contacts {
         soft_contact_max  = softMax;
 
         // allocate buffers with Newton-like defaults:
-        // - shapes/tids default to -1
+        // - shapes params default to -1
         // - vectors default to 0
         rigid_contact_point_id.assign(rigid_contact_max, 0);
         rigid_contact_shape0.assign(rigid_contact_max, -1);
@@ -114,8 +103,6 @@ struct Contacts {
         rigid_contact_thickness0.assign(rigid_contact_max, 0.0f);
         rigid_contact_thickness1.assign(rigid_contact_max, 0.0f);
 
-        // rigid_contact_tids.assign(rigid_contact_max, -1);
-        rigid_contact_force.assign(rigid_contact_max, Vec3::Zero());
 
         if (per_contact_shape_properties) {
             rigid_contact_stiffness.assign(rigid_contact_max, 0.0f);
@@ -134,14 +121,11 @@ struct Contacts {
         soft_contact_body_vel.assign(soft_contact_max, Vec3::Zero());
         soft_contact_normal.assign(soft_contact_max, Vec3::Zero());
 
-        // soft_contact_tids.assign(soft_contact_max, -1);
-
-        clear(); // Newton: counters zero; and maybe clear buffers if requested
+        clear();
     }
 
     // ------clear ---------
-    void clear()
-    {
+    void clear() {
         // Newton: _counter_array.zero_() (single kernel)
         counter_[0] = 0;
         counter_[1] = 0;
@@ -155,8 +139,6 @@ struct Contacts {
         // Conservative path: fill sentinel values / zeros
         std::ranges::fill(rigid_contact_shape0, -1);
         std::ranges::fill(rigid_contact_shape1, -1);
-        // std::fill(rigid_contact_tids.begin(),   rigid_contact_tids.end(),   -1);
-        std::ranges::fill(rigid_contact_force,  Vec3::Zero());
 
         if (per_contact_shape_properties) {
             std::ranges::fill(rigid_contact_stiffness, 0.0f);
@@ -166,12 +148,11 @@ struct Contacts {
 
         std::ranges::fill(soft_contact_particle, -1);
         std::ranges::fill(soft_contact_shape,    -1);
-        // std::fill(soft_contact_tids.begin(),     soft_contact_tids.end(),     -1);
+
     }
 
-    // ----------------------------
+
     // helpers (CPU append; GPU would use atomicAdd)
-    // ----------------------------
     [[nodiscard]] bool has_room_for_rigid(std::int32_t n = 1) const noexcept {
         return rigid_contact_count() + n <= rigid_contact_max;
     }

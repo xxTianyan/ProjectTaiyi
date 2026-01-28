@@ -132,8 +132,7 @@ struct GeoData {
     TTransform X_ws; // shape -> world
     TTransform X_sw; // world -> shape
 
-    static GeoData create_geo_data(int shape_index, const Vec3 &shape_pos, const Quat &shape_rot, GeoType shape_type,
-                                   int body_index, const Vec3 &body_pos, const Quat &body_rot, const Vec3 &shape_scale, float thickness);
+    static GeoData CreateGeoData(int shape_index, const MModel& model, const State& state);
 };
 
 

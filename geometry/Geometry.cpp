@@ -4,6 +4,8 @@
 
 #include "Geometry.h"
 
+#include "Model.h"
+
 tetrahedron::tetrahedron(const VertexID vtex0, const VertexID vtex1, const VertexID vtex2, const VertexID vtex3,
                          const Vec3 &vtex0_pos, const Vec3 &vtex1_pos, const Vec3 &vtex2_pos,
                          const Vec3 &vtex3_pos) : vertices{vtex0, vtex1, vtex2, vtex3} {
@@ -124,18 +126,16 @@ float edge::ComputeRestDihedralAngle(const Vec3 &x0, const Vec3 &x1, const Vec3 
     return std::atan2(sin_theta, cos_theta);
 }
 
-GeoData GeoData::create_geo_data(const int shape_index, const Vec3 &shape_pos, const Quat &shape_rot,
-                                 const GeoType shape_type, const int body_index, const Vec3 &body_pos,
-                                 const Quat &body_rot, const Vec3 &shape_scale, const float thickness) {
+GeoData GeoData::CreateGeoData(const int shape_index, const MModel& model, const State& state) {
 
     GeoData g;
     g.shape_index = shape_index;
-    g.rigid_body_index = body_index;
+    g.rigid_body_index = model.shape_body[shape_index];
 
     // body -> world
     if (g.rigid_body_index >= 0) {
-        g.X_wb.p = body_pos;
-        g.X_wb.q = body_rot;
+        g.X_wb.p = state.body_pos[g.rigid_body_index];
+        g.X_wb.q = state.body_rot[g.rigid_body_index];
     }else {
         g.X_wb = TTransform::Identity();
     }
@@ -143,18 +143,18 @@ GeoData GeoData::create_geo_data(const int shape_index, const Vec3 &shape_pos, c
     g.X_bw = g.X_wb.inverse();
 
     // shape -> body
-    g.X_bs.p = shape_pos;
-    g.X_bs.q = shape_rot;
+    g.X_bs.p = model.shape_pos0[g.shape_index];
+    g.X_bs.q = model.shape_rot0[g.shape_index];
 
     // shape -> world
     g.X_ws = g.X_wb * g.X_bs;
     g.X_sw = g.X_ws.inverse();
 
     // geometry props
-    g.geo_type = shape_type;
-    g.geo_scale = shape_scale;
+    g.geo_type = static_cast<GeoType>(model.shape_type[g.shape_index]);
+    g.geo_scale = model.shape_scale[g.shape_index];
     g.min_scale = std::min({g.geo_scale.x(), g.geo_scale.y(), g.geo_scale.z()});
-    g.thickness = thickness;
+    g.thickness = model.shape_thickness[g.shape_index];
 
     g.radius_eff = 0.0f;
 
