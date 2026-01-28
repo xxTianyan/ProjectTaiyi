@@ -58,11 +58,6 @@ inline void compute_projected_isotropic_friction_ipc(
 
 void VBDSolver::clear() {
 
-    std::ranges::fill(particle_contact_force_, Vec3::Zero());
-    std::ranges::fill(particle_contact_hessian_, Mat3::Zero());
-    std::ranges::fill(particle_prev_pos_, Vec3::Zero());
-    std::ranges::fill(particle_inertia_, Vec3::Zero());
-
     if (model_.topology_version != topology_version_) {
         BuildAdjacencyInfo();
         topology_version_ = model_.topology_version;
@@ -88,6 +83,11 @@ void VBDSolver::clear() {
         body_inertia_pos_.resize(num_bodies);
         body_inertia_rot_.resize(num_bodies);
     }
+
+    std::ranges::fill(particle_contact_force_, Vec3::Zero());
+    std::ranges::fill(particle_contact_hessian_, Mat3::Zero());
+    std::ranges::fill(particle_prev_pos_, Vec3::Zero());
+    std::ranges::fill(particle_inertia_, Vec3::Zero());
 }
 
 void VBDSolver::init_particles(State &state_in, const float dt) {
