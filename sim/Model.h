@@ -149,8 +149,18 @@ struct MModel {
 
 
     // collide
+    CollideParams collide_params{};
     std::unique_ptr<CollisionPipeline> collision_pipeline_;
-    Contacts& collide(const State& state_in, const CollideParams& params);
+
+    const Contacts& collide(const State& state_in) {
+        if (!collision_pipeline_) {
+            collision_pipeline_ = std::make_unique<CollisionPipeline>();
+            collision_pipeline_->BuildFromModel(*this, collide_params);
+        }
+
+        const auto& contacts = collision_pipeline_->Collide(*this, state_in);
+        return contacts;
+    };
 
 };
 

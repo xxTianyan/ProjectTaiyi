@@ -18,8 +18,8 @@ struct CollideParams {
     float soft_contact_margin = 0.01f;
     int   edge_sdf_iter       = 10;
 
-    // capacity controls,  -1 means unlimited
-    int rigid_contact_max          = -1;
+    // capacity controls,  -1 means None
+    int rigid_contact_max          = 1000;
     int rigid_contact_max_per_pair = -1;
     int soft_contact_max           = -1;
 
@@ -39,8 +39,6 @@ public:
     // make contact ptr in this function.
     void BuildFromModel(const MModel& model, const CollideParams& params);
 
-    // Ensure internal buffers match model (shape count changed / filtered pairs changed / topology version changed)
-    void EnsureUpToDate(const MModel& model, const CollideParams& params);
 
     // Update per-call parameters (Newton: self.soft_contact_margin, self.edge_sdf_iter)
     void SetSoftContactMargin(const float m) { soft_contact_margin_ = m; }
