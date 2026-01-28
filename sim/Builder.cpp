@@ -683,7 +683,6 @@ size_t Builder::add_rigidbox(const Vec3 &center, const Vec3 &half_extents, float
     // ----------------- 4) Register Body Info -----------------
     RigidBodyInfo info;
     info.name = name;
-    info.body_id = body_id;
     info.vertex = range{ v_begin, 24 };
     info.render_tri = range{ t_begin, 12 };
     info.shapes = range{ 0, 0 }; // 稍后构建碰撞体

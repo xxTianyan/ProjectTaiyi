@@ -245,12 +245,12 @@ void RenderHelper::Draw(const State& state, const bool is_wire_mode) const {
     }
 
     // ----- rigid bodis ----
-    for (const auto& rb : rigid_bodies_) {
+    for (size_t i = 0; i < rigid_bodies_.size(); ++i) {
+        auto& rb = rigid_bodies_[i];
         if (!rb.valid) continue;
-        const size_t b = rb.info.body_id;
 
-        const Vec3& p = state.body_pos[b];
-        const Quat& q = state.body_rot[b];
+        const Vec3& p = state.body_pos[i];
+        const Quat& q = state.body_rot[i];
 
         Vector3 axis{};
         float angle_deg{};
@@ -265,7 +265,6 @@ void RenderHelper::Draw(const State& state, const bool is_wire_mode) const {
             DrawModelEx(rb.model, pos, axis, angle_deg, scl, WHITE);
         }
     }
-
 }
 
 // ------------------------ math helpers ------------------------
