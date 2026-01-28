@@ -116,5 +116,28 @@ struct TTransform {
     }
 };
 
+struct GeoData {
+    int shape_index{-1};
+    int rigid_body_index{-1};
+
+    GeoType geo_type{GeoType::NONE};
+    Vec3    geo_scale{Vec3::Ones()};   // 对 BOX：建议使用 half extents
+    float  min_scale = 1.0f;
+    float  thickness = 0.0f;
+    float  radius_eff = 0.0f;
+
+    TTransform X_wb; // body -> world
+    TTransform X_bw; // world -> body
+    TTransform X_bs; // shape -> body
+    TTransform X_ws; // shape -> world
+    TTransform X_sw; // world -> shape
+
+    static GeoData create_geo_data(int shape_index, const Vec3 &shape_pos, const Quat &shape_rot, GeoType shape_type,
+                                   int body_index, const Vec3 &body_pos, const Quat &body_rot, const Vec3 &shape_scale, float thickness);
+};
+
+
+
+
 
 #endif //TAIYI_GEOMETRY_H

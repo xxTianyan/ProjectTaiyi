@@ -124,6 +124,50 @@ float edge::ComputeRestDihedralAngle(const Vec3 &x0, const Vec3 &x1, const Vec3 
     return std::atan2(sin_theta, cos_theta);
 }
 
+GeoData GeoData::create_geo_data(const int shape_index, const Vec3 &shape_pos, const Quat &shape_rot,
+                                 const GeoType shape_type, const int body_index, const Vec3 &body_pos,
+                                 const Quat &body_rot, const Vec3 &shape_scale, const float thickness) {
+
+    GeoData g;
+    g.shape_index = shape_index;
+    g.rigid_body_index = body_index;
+
+    // body -> world
+    if (g.rigid_body_index >= 0) {
+        g.X_wb.p = body_pos;
+        g.X_wb.q = body_rot;
+    }else {
+        g.X_wb = TTransform::Identity();
+    }
+
+    g.X_bw = g.X_wb.inverse();
+
+    // shape -> body
+    g.X_bs.p = shape_pos;
+    g.X_bs.q = shape_rot;
+
+    // shape -> world
+    g.X_ws = g.X_wb * g.X_bs;
+    g.X_sw = g.X_ws.inverse();
+
+    // geometry props
+    g.geo_type = shape_type;
+    g.geo_scale = shape_scale;
+    g.min_scale = std::min({g.geo_scale.x(), g.geo_scale.y(), g.geo_scale.z()});
+    g.thickness = thickness;
+
+    g.radius_eff = 0.0f;
+
+    // future expand：only Sphere/Capsule/Cone needs radius_eff
+    // if (g.geo_type == GeoType::SPHERE || g.geo_type == GeoType::CAPSULE) g.radius_eff = g.geo_scale.x();
+
+    return g;
+}
+
+
+
+
+
 
 
 

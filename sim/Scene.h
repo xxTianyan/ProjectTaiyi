@@ -47,7 +47,6 @@ private:
 
 };
 
-
 // helper functions for constructing scene
 template <class Vec>
 size_t checked_index(const int32_t id, const Vec& v, const char* what) {
