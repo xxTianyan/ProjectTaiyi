@@ -4,6 +4,7 @@
 
 #ifndef TAIYI_COLLIDE_H
 #define TAIYI_COLLIDE_H
+
 #include <memory>
 #include <vector>
 
@@ -17,8 +18,8 @@ struct CollideParams {
     float soft_contact_margin = 0.01f;
     int   edge_sdf_iter       = 10;
 
-    // capacity controls (可选：让 pipeline 预估或固定上限)
-    int rigid_contact_max_per_pair = -1; // -1 表示“不限制/由 pipeline 自己策略”
+    // capacity controls
+    int rigid_contact_max_per_pair = -1; // -1 mean unlimited
     int soft_contact_max           = -1;
 
     // debug / perf
@@ -62,11 +63,14 @@ private:
     void ClearCachedContacts_();
 
     // --------------------------
-    // Pipeline stages (CPU版可以直接实现; GPU版对应 kernel launch)
+    // Pipeline stages
     // --------------------------
     void GenerateSoftContacts_(const MModel& model, const State& state, Contacts& contacts);
     void BroadphaseRigidPairs_(const MModel& model, const State& state);
     void NarrowphaseRigidContacts_(const MModel& model, const State& state, Contacts& contacts);
+
+    bool AllocateContactPoints(int num_contacts_a, int num_contacts_b, int shape_a, int shape_b) const;
+
     static int ShapeContactPointCount(GeoType type);
 
 private:
@@ -97,8 +101,8 @@ private:
     std::vector<int> rigid_pair_shape1_;
     std::vector<int> rigid_pair_point_id_;
 
-    // Optional per-pair control (Newton has rigid_pair_point_limit/point_count, can be None)
-    // 如果你先不做 manifold/每pair上限，可以先不启用它们
+    // per-pair control (currently not use)
+
     std::vector<int> rigid_pair_point_limit_; // 可为空
     std::vector<int> rigid_pair_point_count_; // 可为空
 

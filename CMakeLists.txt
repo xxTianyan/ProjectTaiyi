@@ -69,14 +69,11 @@ add_executable(Taiyi sample/main.cpp
         sample/Sample.cpp
         sample/SampleRegistry.cpp
         common/Application.cpp
-        collision/BroadPhase.cpp
         collision/TriMeshCollision.cpp
         solver/VBD/VBDSolver.cpp
         raylib_plugin/RenderHelper.cpp
         collision/Collide.cpp
-)
-
-
+        geometry/Geometry.cpp)
 
 target_include_directories(Taiyi
         PRIVATE
@@ -87,7 +84,8 @@ target_include_directories(Taiyi
         ${CMAKE_CURRENT_SOURCE_DIR}/sample
         ${CMAKE_CURRENT_SOURCE_DIR}/solver
         ${CMAKE_CURRENT_SOURCE_DIR}/solver/VBD
-        ${CMAKE_CURRENT_SOURCE_DIR}/imgui_plugin)
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui_plugin
+        ${CMAKE_CURRENT_SOURCE_DIR}/geometry)
 
 target_link_libraries(Taiyi PRIVATE Eigen3::Eigen rlImGui imgui raylib)
 

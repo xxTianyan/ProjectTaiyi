@@ -3,7 +3,7 @@
 //
 
 #include "Collide.h"
-
+#include "Geometry.h"
 #include "Model.h"
 
 inline Vec3 ClosestPointPlane_Local(float sx, float sz, const Vec3& p_local) {
@@ -14,19 +14,21 @@ inline Vec3 ClosestPointPlane_Local(float sx, float sz, const Vec3& p_local) {
 
 void CollisionPipeline::BroadphaseRigidPairs_(const MModel &model, const State &state) {
     if (!cached_contacts_) cached_contacts_ = std::make_unique<Contacts>();
-    int out_count{0};
 
     const auto num_shapes = static_cast<int>(model.num_shapes);
 
+    // boundary check
     if (num_shapes <= 0) return;
     if (shape_pairs_filtered_.empty()) return;
     if (rigid_contact_max_ <= 0) return;
 
     for (auto [shape_a, shape_b] : shape_pairs_filtered_) {
-        if (shape_a < 0 || shape_a >= num_shapes || shape_b < 0 || shape_b >= num_shapes) continue;
+        if (shape_a < 0 || shape_a >= num_shapes || shape_b < 0 || shape_b >= num_shapes)
+            throw std::runtime_error("Invalid shape pair appear");
+
         if (shape_a == shape_b) continue;
 
-        // --- build X_ws_a / X_ws_b (world space pos+rot) ---
+        // --- build X_ws_a / X_ws_b (shape -> world pos+rot) ---
         Vec3 p_ws_a, p_ws_b;
         Quat q_ws_a, q_ws_b;
 
@@ -52,6 +54,7 @@ void CollisionPipeline::BroadphaseRigidPairs_(const MModel &model, const State &
         int type_a = model.shape_type[shape_a];
         int type_b = model.shape_type[shape_b];
 
+        // ensure unique ordering of shape pairs
         if (type_a > type_b) {
             std::swap(shape_a, shape_b);
             std::swap(type_a, type_b);
@@ -90,6 +93,7 @@ void CollisionPipeline::BroadphaseRigidPairs_(const MModel &model, const State &
 
         if (!pass) continue;
 
+        // flatten 2d array
         const int pair_index_ab = shape_a * num_shapes + shape_b;
         const int pair_index_ba = shape_b * num_shapes + shape_a;
 
@@ -105,12 +109,66 @@ void CollisionPipeline::BroadphaseRigidPairs_(const MModel &model, const State &
             num_contacts_b = ShapeContactPointCount(geo_b);
         }
 
-        // allocate contact points
-
-
+        // assign a limit per rigid contact pair, if max_per_pair is set
+        if (rigid_contact_max_per_pair_ > 0) {
+            const int half = rigid_contact_max_per_pair_ / 2;
+            if (num_contacts_b > 0) {
+                rigid_pair_point_limit_[pair_index_ab] = half;
+                rigid_pair_point_limit_[pair_index_ba] = half;
+            } else {
+                rigid_pair_point_limit_[pair_index_ab] = rigid_contact_max_per_pair_;
+                rigid_pair_point_limit_[pair_index_ba] = 0;
+            }
+        } else {
+            rigid_pair_point_limit_[pair_index_ab] = 0;
+            rigid_pair_point_limit_[pair_index_ba] = 0;
         }
 
+        // allocate contact points
+        const bool _success = AllocateContactPoints(num_contacts_a, num_contacts_b, shape_a, shape_b);
+        if (!_success)
+            break;
+    }
 };
+
+bool CollisionPipeline::AllocateContactPoints(int num_contacts_a, int num_contacts_b, int shape_a, int shape_b) const {
+
+    const int num_contacts = num_contacts_a + num_contacts_b;
+
+    if (num_contacts <= 0) return true;
+
+    auto& io_contact_count = cached_contacts_->rigid_contact_count();
+
+    const int index = io_contact_count;
+    const int new_end = index + num_contacts - 1;
+    if (new_end >= rigid_contact_max_) return false;
+
+    io_contact_count += num_contacts;
+
+    auto& contact_shape0 = cached_contacts_->rigid_contact_shape0;
+    auto& contact_shape1 = cached_contacts_->rigid_contact_shape1;
+    auto& contact_point_id = cached_contacts_->rigid_contact_point_id;
+
+    // add pair contact point to rigid_pair_point_count vector in the future if needed.
+
+    // allocate contact points from shape A -> B
+    for (int i = 0; i < num_contacts_a; ++i) {
+        const int cp_index = index + i;
+        contact_shape0[cp_index] = shape_a;
+        contact_shape1[cp_index] = shape_b;
+        contact_point_id[cp_index] = i;
+    }
+
+    // allocate contact points from shape B -> A
+    for (int i = 0; i < num_contacts_b; ++i) {
+        const int cp_index = index + num_contacts_a + i;
+        contact_shape0[cp_index] = shape_b;
+        contact_shape1[cp_index] = shape_a;
+        contact_point_id[cp_index] = i;
+    }
+
+    return true;
+}
 
 int CollisionPipeline::ShapeContactPointCount(const GeoType type) {
     switch (type) {

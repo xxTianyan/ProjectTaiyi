@@ -3,7 +3,7 @@
 //
 
 #include "RenderHelper.h"
-
+#include "Geometry.h"
 
 void RenderHelper::BindModel(const MModel& model) {
     model_ = &model;

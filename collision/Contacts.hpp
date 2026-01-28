@@ -24,7 +24,7 @@ struct Contacts {
     // Newton: wp.zeros(2, int32) + slices
     std::int32_t counter_[2]{0, 0};
 
-    // handy accessors (Newton: self.rigid_contact_count = _counter_array[0:1])
+    // handy accessors
     [[nodiscard]] std::int32_t& rigid_contact_count() noexcept { return counter_[0]; }
     [[nodiscard]] std::int32_t  rigid_contact_count() const noexcept { return counter_[0]; }
     [[nodiscard]] std::int32_t& soft_contact_count() noexcept { return counter_[1]; }
@@ -153,19 +153,19 @@ struct Contacts {
         }
 
         // Conservative path: fill sentinel values / zeros
-        std::fill(rigid_contact_shape0.begin(), rigid_contact_shape0.end(), -1);
-        std::fill(rigid_contact_shape1.begin(), rigid_contact_shape1.end(), -1);
+        std::ranges::fill(rigid_contact_shape0, -1);
+        std::ranges::fill(rigid_contact_shape1, -1);
         // std::fill(rigid_contact_tids.begin(),   rigid_contact_tids.end(),   -1);
-        std::fill(rigid_contact_force.begin(),  rigid_contact_force.end(),  Vec3::Zero());
+        std::ranges::fill(rigid_contact_force,  Vec3::Zero());
 
         if (per_contact_shape_properties) {
-            std::fill(rigid_contact_stiffness.begin(), rigid_contact_stiffness.end(), 0.0f);
-            std::fill(rigid_contact_damping.begin(),   rigid_contact_damping.end(),   0.0f);
-            std::fill(rigid_contact_friction.begin(),  rigid_contact_friction.end(),  0.0f);
+            std::ranges::fill(rigid_contact_stiffness, 0.0f);
+            std::ranges::fill(rigid_contact_damping,   0.0f);
+            std::ranges::fill(rigid_contact_friction,  0.0f);
         }
 
-        std::fill(soft_contact_particle.begin(), soft_contact_particle.end(), -1);
-        std::fill(soft_contact_shape.begin(),    soft_contact_shape.end(),    -1);
+        std::ranges::fill(soft_contact_particle, -1);
+        std::ranges::fill(soft_contact_shape,    -1);
         // std::fill(soft_contact_tids.begin(),     soft_contact_tids.end(),     -1);
     }
 

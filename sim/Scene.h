@@ -7,7 +7,6 @@
 
 // all static values are stored in model struct, all changing values are stored in state struct
 #include <array>
-#include <cstdint>
 #include <utility>  // std::swap
 #include "Model.h"
 #include "Types.h"
