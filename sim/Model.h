@@ -48,8 +48,8 @@ struct State {
     std::vector<Vec3> body_lin_vel;         // world linear velocity
     std::vector<Vec3> body_ang_vel;         // world angular velocity
 
-    std::vector<Vec3> body_force;           // world accumulated force
-    std::vector<Vec3> body_torque;          // world accumulated torque
+    std::vector<Vec3> body_force;           // world external force
+    std::vector<Vec3> body_torque;          // world external torque
 
     void resize_particle(const size_t n_nodes) {
         particle_pos.resize(n_nodes);
@@ -93,8 +93,10 @@ struct MModel {
 
     std::vector<Vec3>  body_local_com;        // COM in local/body frame
     std::vector<float> body_inv_mass;  // inv_mass==0 => static/kinematic
-    std::vector<Mat3>  body_inertia; // inverse inertia in BODY frame
+    std::vector<Mat3>  body_inertia; //  inertia in BODY frame
     std::vector<Mat3>  body_inv_inertia; // inverse inertia in BODY frame
+
+    std::vector<uint8_t> body_active_flags;   // kinematic/static-lock
 
     std::vector<Vec3> body_render_vertices;  // rigid body render surface vertex local position.
 
@@ -111,7 +113,7 @@ struct MModel {
     std::vector<float> shape_contact_margin;   // per-shape margin
     std::vector<std::pair<size_t, size_t>> shape_contact_pairs;
 
-    std::vector<int> body_shapes_offsets; // [num_body + 1]
+    std::vector<int> body_shapes_offsets{0}; // [num_body + 1]
     std::vector<int> body_shapes_indices; // flattened list of shape ids
 
     size_t num_shapes = 0;
@@ -146,7 +148,6 @@ struct MModel {
 
     // global
     Vec3 gravity_{};
-
 
     // collide
     CollideParams collide_params{};

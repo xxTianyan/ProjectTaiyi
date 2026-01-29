@@ -50,28 +50,59 @@ public:
 
     [[nodiscard]] size_t add_single_tet() const;
 
-    [[nodiscard]] size_t add_sphere(const float radius,  const int res, const Vec3& center, const float mass, const char* name) const;
+    [[nodiscard]] size_t add_sphere(float radius, int res, const Vec3& center, float mass, const char* name) const;
 
     [[nodiscard]] size_t add_rigidbox(const Vec3& center, const Vec3& half_extents, float mass, const Quat& world_rot = Quat::Identity(),const std::string& name = "rigid_box") const;
 
-    // void add_rigidbody();
+    [[nodiscard]] size_t add_rigidbody(const std::string &name, const Vec3 &pos, const Quat &rot,
+                                       bool kinematic = true, float mass = 0.0f, const Vec3 &com = Vec3::Zero(),
+                                       const Mat3 &inertia_tensor = Mat3::Zero()) const;
+
+    size_t add_shape_box(size_t body_id, float hx, float hy, float hz, const Vec3 &local_pos = Vec3::Zero(),
+                         const Quat &local_rot = Quat::Identity(), float density = -1.0f, float thickness = -1.0f,
+                         float margin = -1.0f, bool contribute_mass = true, bool contribute_render_mesh = true);
+
+
 
 private:
 
     MModel& model_;
+
+    float default_shape_contact_margin = 0.1f;
+    float default_shape_thickness = 1e-5;
+    float default_shape_density = 1000.0f;
+
+private:
 
     void PrepareCapacity(size_t num) const;
 
     void AddDeformableBodyInfo(const char* name, size_t n_particle, size_t n_edge,
                 size_t n_tri, const size_t n_render_tri, size_t n_tet) const;
 
-    void AddRigidBodyInfo();
+    void AddRigidBodyInfo(const char* name, size_t n_vertices, size_t n_render_tris, size_t n_shapes) const;
 
     static void CheckVertexLimit(const uint32_t local_particle_count) {
         if (local_particle_count > static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ull) {
             throw std::runtime_error("Builder: particle_count > 65536, raylib u16 indices not supported.");
         }
     }
+
+    // helper functions
+    static Mat3 parallel_axis(const Vec3& d, const float m) {
+        // m * (||d||^2 I - d d^T)
+        const float d2 = d.squaredNorm();
+        return m * (d2 * Mat3::Identity() - d * d.transpose());
+    }
+
+    static bool invert_spd_safe(const Mat3& I, Mat3& outInv) {
+        const float det = I.determinant();
+        if (std::abs(det) < 1e-12f) return false;
+        outInv = I.inverse();
+        return true;
+    }
+
+    void accumulate_mass_properties(int body_id, float m_add, const Vec3& c_add_body, const Mat3& I_add_about_c_add_body) const;
+
 };
 
 

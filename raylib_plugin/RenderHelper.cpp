@@ -24,9 +24,10 @@ void RenderHelper::Shutdown() {
             rb.valid = false;
         }
     }
-    rigid_bodies_.clear();
 
+    rigid_bodies_.clear();
     meshes_.clear();
+
     ready_ = false;
     built_topology_version_ = 0;
 }
@@ -69,8 +70,8 @@ Model& RenderHelper::GetRLModel_d(const size_t mesh_id) {
     return meshes_[mesh_id].model;
 }
 
-Model & RenderHelper::GetRLModel_r(size_t mesh_id) {
-    return rigid_bodies_[mesh_id].model;
+Model & RenderHelper::GetRLModel_r(const size_t body_id) {
+    return rigid_bodies_[body_id].model;
 }
 
 void RenderHelper::Rebuild() {
@@ -139,67 +140,68 @@ void RenderHelper::Rebuild() {
         meshes_.push_back(rm);
     }
 
+    rigid_bodies_.reserve(model_->num_bodies);
     for (const RigidBodyInfo& bi : model_->body_infos) {
-    RenderRigidBody rb{};
-    rb.info = bi;
+        RenderRigidBody rb{};
+        rb.info = bi;
 
         const size_t vertex_begin = rb.info.vertex.begin;
         const size_t vertex_count = rb.info.vertex.count;
         const size_t tri_count      = rb.info.render_tri.count;
 
-    if (vertex_count == 0 || tri_count == 0) {
-        rb.valid = false;
+        if (vertex_count == 0 || tri_count == 0) {
+            rb.valid = false;
+            rigid_bodies_.push_back(rb);
+            continue;
+        }
+
+        // u16 index guard
+        if (vertex_count > static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ull) {
+            throw std::runtime_error("RenderHelper::Rebuild: rigid vcount > 65536, raylib u16 indices not supported. Split mesh.");
+        }
+
+        if (vertex_begin + vertex_count > model_->body_render_vertices.size()) {
+            throw std::runtime_error("RenderHelper::Rebuild: rigid render_vertices range out of pool");
+        }
+        if (rb.info.render_tri.end() > model_->body_render_vertices.size()) {
+            throw std::runtime_error("RenderHelper::Rebuild: rigid render_tris range out of pool");
+        }
+
+        Mesh mesh{};
+        mesh.vertexCount   = static_cast<int>(vertex_count);
+        mesh.triangleCount = static_cast<int>(tri_count);
+
+        mesh.vertices = static_cast<float*>(MemAlloc(vertex_count * 3 * sizeof(float)));
+        mesh.normals  = static_cast<float*>(MemAlloc(vertex_count * 3 * sizeof(float)));
+        mesh.indices  = static_cast<unsigned short*>(MemAlloc(tri_count * 3 * sizeof(unsigned short)));
+
+        if (!mesh.vertices || !mesh.normals || !mesh.indices) {
+            throw std::runtime_error("RenderHelper::Rebuild: MemAlloc failed (rigid)");
+        }
+
+        // fill local positions once
+        for (size_t i = 0; i < vertex_count; ++i) {
+            const Vec3& p = model_->body_render_vertices[rb.info.vertex.begin + i];
+            mesh.vertices[i * 3 + 0] = p.x();
+            mesh.vertices[i * 3 + 1] = p.y();
+            mesh.vertices[i * 3 + 2] = p.z();
+        }
+
+        // indices are local (0..vertex_count - 1)
+        BuildIndicesU16(*model_, rb.info.render_tri, vertex_begin, vertex_count, mesh.indices);
+
+        // compute local normals once
+        ComputeNormalsXYZ(*model_, model_->body_render_vertices, rb.info.render_tri, vertex_begin, vertex_count, mesh.normals);
+
+        // Upload as static: never update vertices/normals each frame
+        UploadMesh(&mesh, false);
+
+        rb.model = LoadModelFromMesh(mesh);
+        rb.model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
+
+        if (IsModelValid(rb.model)) rb.valid = true;
         rigid_bodies_.push_back(rb);
-        continue;
     }
-
-    // u16 index guard
-    if (vertex_count > static_cast<size_t>(std::numeric_limits<unsigned short>::max()) + 1ull) {
-        throw std::runtime_error("RenderHelper::Rebuild: rigid vcount > 65536, raylib u16 indices not supported. Split mesh.");
-    }
-
-    if (vertex_begin + vertex_count > model_->body_render_vertices.size()) {
-        throw std::runtime_error("RenderHelper::Rebuild: rigid render_vertices range out of pool");
-    }
-    if (rb.info.render_tri.end() > model_->body_render_vertices.size()) {
-        throw std::runtime_error("RenderHelper::Rebuild: rigid render_tris range out of pool");
-    }
-
-    Mesh mesh{};
-    mesh.vertexCount   = static_cast<int>(vertex_count);
-    mesh.triangleCount = static_cast<int>(tri_count);
-
-    mesh.vertices = static_cast<float*>(MemAlloc(vertex_count * 3 * sizeof(float)));
-    mesh.normals  = static_cast<float*>(MemAlloc(vertex_count * 3 * sizeof(float)));
-    mesh.indices  = static_cast<unsigned short*>(MemAlloc(tri_count * 3 * sizeof(unsigned short)));
-
-    if (!mesh.vertices || !mesh.normals || !mesh.indices) {
-        throw std::runtime_error("RenderHelper::Rebuild: MemAlloc failed (rigid)");
-    }
-
-    // fill local positions once
-    for (size_t i = 0; i < vertex_count; ++i) {
-        const Vec3& p = model_->body_render_vertices[rb.info.vertex.begin + i];
-        mesh.vertices[i * 3 + 0] = p.x();
-        mesh.vertices[i * 3 + 1] = p.y();
-        mesh.vertices[i * 3 + 2] = p.z();
-    }
-
-    // indices are local (0..vertex_count - 1)
-    BuildIndicesU16(*model_, rb.info.render_tri, vertex_begin, vertex_count, mesh.indices);
-
-    // compute local normals once
-    ComputeNormalsXYZ(*model_, model_->body_render_vertices, rb.info.render_tri, vertex_begin, vertex_count, mesh.normals);
-
-    // Upload as static: never update vertices/normals each frame
-    UploadMesh(&mesh, false);
-
-    rb.model = LoadModelFromMesh(mesh);
-    rb.model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
-
-    if (IsModelValid(rb.model)) rb.valid = true;
-    rigid_bodies_.push_back(rb);
-}
 
     ready_ = true;
 }

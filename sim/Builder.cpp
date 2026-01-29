@@ -388,22 +388,6 @@ size_t Builder::add_single_tet() const {
     return model_.mesh_infos.size() - 1;
 }
 
-
-// 辅助函数：将立方体空间的坐标映射到球体空间
-// 输入: x, y, z 在 [-1, 1] 范围内
-// 输出: 映射到单位球表面的坐标
-Vec3 MapCubeToSphere(float x, float y, float z) {
-    float x2 = x * x;
-    float y2 = y * y;
-    float z2 = z * z;
-
-    float sx = x * std::sqrt(1.0f - y2 / 2.0f - z2 / 2.0f + (y2 * z2) / 3.0f);
-    float sy = y * std::sqrt(1.0f - z2 / 2.0f - x2 / 2.0f + (z2 * x2) / 3.0f);
-    float sz = z * std::sqrt(1.0f - x2 / 2.0f - y2 / 2.0f + (x2 * y2) / 3.0f);
-
-    return Vec3(sx, sy, sz);
-}
-
 size_t Builder::add_sphere(const float radius,
                            const int res, // 分辨率：建议 10-20 之间
                            const Vec3& center,
@@ -411,6 +395,19 @@ size_t Builder::add_sphere(const float radius,
                            const char* name) const {
     if (radius <= 0.0f || res <= 0)
         throw std::runtime_error("Builder::add_sphere: Invalid parameters");
+
+    // sphere helper function
+    auto MapCubeToSphere = [](float x, float y, float z) {
+        float x2 = x * x;
+        float y2 = y * y;
+        float z2 = z * z;
+
+        float sx = x * std::sqrt(1.0f - y2 / 2.0f - z2 / 2.0f + (y2 * z2) / 3.0f);
+        float sy = y * std::sqrt(1.0f - z2 / 2.0f - x2 / 2.0f + (z2 * x2) / 3.0f);
+        float sz = z * std::sqrt(1.0f - x2 / 2.0f - y2 / 2.0f + (x2 * y2) / 3.0f);
+
+        return Vec3(sx, sy, sz);
+    };
 
     // 1. Setup Counts
     // 我们将建立一个 (res x res x res) 的逻辑立方体网格，然后将其变形
@@ -619,41 +616,6 @@ size_t Builder::add_rigidbox(const Vec3 &center, const Vec3 &half_extents, float
     model_.body_render_vertices.reserve(v_begin + 24);
     model_.render_tris.reserve(t_begin + 12);
 
-    // 定义立方体6个面的法线轴向和对应的切线方向索引 (x=0, y=1, z=2)
-    // 顺序: +X, -X, +Y, -Y, +Z, -Z
-    static const int faces[6][3] = {
-        {0, 1, 2}, {0, 2, 1}, // X轴面: 此时 Y,Z 为平面坐标 (注意 -X 面为了保持 CCW 需要交换顺序)
-        {1, 2, 0}, {1, 0, 2}, // Y轴面
-        {2, 0, 1}, {2, 1, 0}  // Z轴面
-    };
-
-    // 符号数组，用于生成面的4个角点
-    static const float signs[4][2] = { {1, 1}, {-1, 1}, {-1, -1}, {1, -1} };
-
-    for (int i = 0; i < 6; ++i) {
-        const int axis_n = faces[i][0]; // 法线轴
-        const int axis_u = faces[i][1]; // 平面 U 轴
-        const int axis_v = faces[i][2]; // 平面 V 轴
-        const float dir = (i % 2 == 0) ? 1.0f : -1.0f; // 轴向方向 (+ 或 -)
-
-        const auto base_idx = static_cast<uint32_t>(model_.body_render_vertices.size() - v_begin);
-
-        // 生成当前面的4个顶点
-        for (int k = 0; k < 4; ++k) {
-            Vec3 v;
-            v[axis_n] = half_extents[axis_n] * dir;
-            v[axis_u] = half_extents[axis_u] * signs[k][0] * (i%2==0 ? 1 : -1); // 简单的翻转修正以维持CCW
-            v[axis_v] = half_extents[axis_v] * signs[k][1];
-
-            // 修正 -X, -Y, -Z 面的绕序，或者简单的硬编码坐标
-            // 为了代码极简且绝对正确，这里用一种更直观的“硬编码查表法”替代上面的通用循环逻辑
-            // (上方通用逻辑在处理绕序时容易出错，下面采用更稳健的展开方式)
-        }
-    }
-
-    // --- 更稳健且依然简洁的网格生成方式 ---
-    // 清空刚才循环中可能产生的错误数据，重置 size (仅演示，实际代码请直接用下面这段)
-    // model_.body_render_vertices.resize(v_begin);
 
     auto add_quad = [&](const Vec3& p0, const Vec3& p1, const Vec3& p2, const Vec3& p3) {
         uint32_t idx = static_cast<uint32_t>(model_.body_render_vertices.size() - v_begin);
@@ -694,6 +656,140 @@ size_t Builder::add_rigidbox(const Vec3 &center, const Vec3 &half_extents, float
     return body_id;
 }
 
+size_t Builder::add_rigidbody(const std::string &name, const Vec3 &pos, const Quat &rot, const bool kinematic, const float mass,
+    const Vec3 &com, const Mat3 &inertia_tensor) const {
+
+    const int body_id = static_cast<int>(model_.num_bodies);
+    model_.num_bodies++;
+
+    // --- info ranges (start at current global buffers) ---
+    AddRigidBodyInfo(name.c_str(), 0,0,0);
+
+    model_.body_pos0.push_back(pos);
+    model_.body_rot0.push_back(rot.normalized());
+    model_.body_lin_vel0.push_back(Vec3::Zero());
+    model_.body_ang_vel0.push_back(Vec3::Zero());
+
+    model_.body_local_com.push_back(com);
+    model_.body_inertia.push_back(inertia_tensor);
+
+    Mat3 invI = Mat3::Zero();
+    invert_spd_safe(inertia_tensor, invI);
+    model_.body_inv_inertia.push_back(invI);
+
+    const float inv_mass = (mass > 0.0f && !kinematic) ? (1.0f / mass) : 0.0f;
+    model_.body_inv_mass.push_back(inv_mass);
+
+    if (kinematic)
+        model_.body_active_flags.push_back(1);
+    else
+        model_.body_active_flags.push_back(0);
+
+
+    // --- body_shapes_offsets maintenance ---
+    // invariant: offsets.size() == num_bodies + 1
+    // offsets.back() = body_shapes_indices.size()
+    model_.body_shapes_offsets.push_back(static_cast<int>(model_.body_shapes_indices.size()));
+
+    return body_id;
+}
+
+size_t Builder::add_shape_box(const size_t body_id, const float hx, const float hy, const float hz, const Vec3 &local_pos,
+    const Quat &local_rot, float density, float thickness, float margin, const bool contribute_mass,
+    const bool contribute_render_mesh) {
+    if (body_id < 0 || static_cast<size_t>(body_id) >= model_.num_bodies) {
+        throw std::runtime_error("addShapeBox(): invalid body_id");
+    }
+
+    if (density   < 0.0f) density   = default_shape_density;
+    if (thickness < 0.0f) thickness = default_shape_thickness;
+    if (margin    < 0.0f) margin    = default_shape_contact_margin;
+
+    const int shape_id = static_cast<int>(model_.shape_body.size());
+
+    // --- push shape arrays ---
+    model_.shape_pos0.push_back(local_pos);
+    model_.shape_rot0.push_back(local_rot.normalized());
+    model_.shape_body.push_back(body_id);
+    model_.shape_type.push_back(static_cast<int>(GeoType::BOX));
+    model_.shape_scale.push_back(Vec3(hx, hy, hz));
+    model_.shape_thickness.push_back(thickness);
+    model_.shape_contact_margin.push_back(margin);
+    model_.shape_collision_radius.push_back(Vec3(hx, hy, hz).norm());
+
+    // --- maintain body_shapes_indices/offsets ---
+    // Append shape id into flattened list
+    model_.body_shapes_indices.push_back(shape_id);
+    for (size_t i = body_id + 1; i < model_.body_shapes_offsets.size(); ++i) {
+        model_.body_shapes_offsets[i] += 1;
+    }
+
+    auto& info = model_.body_infos[body_id];
+    info.shapes.count += 1;
+
+    // --- mass/inertia contribution (Newton-like) ---
+    if (contribute_mass && density > 0.0f) {
+        // box volume = (2hx)(2hy)(2hz) = 8 hx hy hz
+        const float volume = 8.0f * hx * hy * hz;
+        const float m = density * volume;
+
+        // inertia of solid box about its center in shape frame:
+        const float x = 2.0f * hx;
+        const float y = 2.0f * hy;
+        const float z = 2.0f * hz;
+
+        Mat3 I_shape = Mat3::Zero();
+        I_shape(0,0) = (1.0f / 12.0f) * m * (y*y + z*z);
+        I_shape(1,1) = (1.0f / 12.0f) * m * (x*x + z*z);
+        I_shape(2,2) = (1.0f / 12.0f) * m * (x*x + y*y);
+
+        // rotate inertia into body frame
+        const Mat3 R = local_rot.normalized().toRotationMatrix(); // shape -> body
+        const Mat3 I_body_about_shape_com = R * I_shape * R.transpose();
+
+        // shape COM in body frame (box center at origin of shape frame)
+        const Vec3& c_body = local_pos;
+
+        accumulate_mass_properties(body_id, m, c_body, I_body_about_shape_com);
+    }
+
+    if (contribute_render_mesh) {
+
+        const size_t v_begin = model_.body_render_vertices.size();
+        const size_t t_begin = model_.render_tris.size();
+
+        model_.body_render_vertices.reserve(v_begin + 24);
+        model_.render_tris.reserve(t_begin + 12);
+
+        auto add_quad = [&](const Vec3& p0, const Vec3& p1, const Vec3& p2, const Vec3& p3) {
+            uint32_t idx = static_cast<uint32_t>(model_.body_render_vertices.size());
+            model_.body_render_vertices.insert(model_.body_render_vertices.end(), {p0, p1, p2, p3});
+            model_.render_tris.push_back({idx, idx + 1, idx + 2});
+            model_.render_tris.push_back({idx, idx + 2, idx + 3});
+        };
+
+        add_quad({-hx, -hy, hz}, { hx, -hy, hz}, { hx,  hy, hz}, {-hx,  hy, hz});
+        // -z Back
+        add_quad({ hx, -hy, -hz}, {-hx, -hy, -hz}, {-hx,  hy, -hz}, { hx,  hy, -hz});
+        // +X Right
+        add_quad({ hx, -hy,  hz}, { hx, -hy, -hz}, { hx,  hy, -hz}, { hx,  hy,  hz});
+        // -X Left
+        add_quad({-hx, -hy, -hz}, {-hx, -hy,  hz}, {-hx,  hy,  hz}, {-hx,  hy, -hz});
+        // +Y Top
+        add_quad({-hx,  hy,  hz}, { hx,  hy,  hz}, { hx,  hy, -hz}, {-hx,  hy, -hz});
+        // -Y Bottom
+        add_quad({-hx, -hy, -hz}, { hx, -hy, -hz}, { hx, -hy,  hz}, {-hx, -hy,  hz});
+
+        // update ranges
+        info.vertex.count += 24;
+        info.render_tri.count += 12;
+
+        model_.topology_version++;
+    }
+
+    return shape_id;
+}
+
 void Builder::PrepareCapacity(const size_t num) const {
     ensure_capacity(model_.particle_pos0, num);
     ensure_capacity(model_.particle_vel0, num);
@@ -722,8 +818,7 @@ void Builder::AddDeformableBodyInfo(const char* name, const size_t n_particle, c
         info.tri = range{0, n_tri};
         info.render_tri = range{0, n_render_tri};
         info.tet = range{0, n_tet};
-    }
-    else {
+    } else {
         const auto& last_mesh = model_.mesh_infos.back();
         info.particle = range{last_mesh.particle.end(), n_particle};
         info.edge = range{last_mesh.edge.end(), n_edge};
@@ -731,13 +826,74 @@ void Builder::AddDeformableBodyInfo(const char* name, const size_t n_particle, c
         info.render_tri = range{last_mesh.render_tri.end(), n_render_tri};
         info.tet = range{last_mesh.tet.end(), n_tet};
     }
-
     model_.mesh_infos.emplace_back(info);
 }
 
-void Builder::AddRigidBodyInfo() {
+void Builder::AddRigidBodyInfo(const char *name, const size_t n_vertices, const size_t n_render_tris, const size_t n_shapes) const {
+    RigidBodyInfo info{};
+    info.name = name;
+
+    if (model_.body_infos.empty()) {
+        info.vertex = range{0, n_vertices};
+        info.render_tri = range{0, n_render_tris};
+        info.shapes = range{0, n_shapes};
+    } else {
+        const auto& last_body = model_.body_infos.back();
+        info.vertex = range(last_body.vertex.end(), n_vertices);
+        info.render_tri = range(last_body.render_tri.end(), n_render_tris);
+        info.shapes = range{last_body.shapes.end(), n_shapes};
+    }
+    model_.body_infos.emplace_back(info);
+}
+
+void Builder::accumulate_mass_properties(const int body_id, const float m_add, const Vec3 &c_add_body,
+    const Mat3 &I_add_about_c_add_body) const {
+    if (m_add <= 0.0f) return;
+    if (!model_.body_active_flags[body_id]) return;
+
+    // current mass
+    float m0 = 0.0f;
+    if (model_.body_inv_mass[body_id] > 0.0f) {
+        m0 = 1.0f / model_.body_inv_mass[body_id];
+    } else {
+        m0 = 0.0f; // treat as "no mass yet"
+    }
+
+    const Vec3& c0 = model_.body_local_com[body_id];
+    const Mat3& I0 = model_.body_inertia[body_id]; // about c0
+
+    const float m1 = m_add;
+    const Vec3& c1 = c_add_body;
+    const Mat3& I1 = I_add_about_c_add_body; // about c1
+
+    const float m = m0 + m1;
+    if (m <= 0.0f) return;
+
+    const Vec3 c = (m0 * c0 + m1 * c1) / m;
+
+    // shift inertia to new COM
+    Mat3 I0_new = I0;
+    if (m0 > 0.0f) {
+        I0_new = I0 + parallel_axis(c0 - c, m0);
+    } else {
+        I0_new.setZero();
+    }
+
+    const Mat3 I1_new = I1 + parallel_axis(c1 - c, m1);
+
+    const Mat3 I_new = I0_new + I1_new;
+
+    model_.body_local_com[body_id] = c;
+    model_.body_inertia[body_id] = I_new;
+    model_.body_inv_mass[body_id] = 1.0f / m;
+
+    Mat3 invI = Mat3::Zero();
+    invert_spd_safe(I_new, invI);
+    model_.body_inv_inertia[body_id] = invI;
 
 }
+
+
 
 
 

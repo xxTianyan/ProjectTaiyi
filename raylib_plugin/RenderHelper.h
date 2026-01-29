@@ -34,7 +34,7 @@ public:
 
     Model& GetRLModel_d(size_t mesh_id);
 
-    Model& GetRLModel_r(size_t mesh_id);
+    Model& GetRLModel_r(size_t body_id);
 
 private:
     struct RenderMesh {
