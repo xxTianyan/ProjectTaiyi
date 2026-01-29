@@ -724,7 +724,7 @@ void VBDSolver::forward_step_with_penetration(State &state_in, const float dt) {
 }
 
 void VBDSolver::forward_step_rigid_bodies(State &state_in, const float dt) {
- const size_t num_bodies = model_.num_bodies;
+    const size_t num_bodies = model_.num_bodies;
 
     // Gravity is an acceleration in WORLD frame [m/s^2]
     // (In your model it looks like a single gravity vector, not per-world.)
@@ -749,19 +749,6 @@ void VBDSolver::forward_step_rigid_bodies(State &state_in, const float dt) {
     // External loads for this step (must be already accumulated in WORLD frame)
     auto& body_force  = state_in.body_force;   // [WORLD] force at COM [N]
     auto& body_torque = state_in.body_torque;  // [WORLD] torque about COM [N·m]
-
-    // -----------------------------
-    // Outputs/caches (owned by solver)
-    // -----------------------------
-    // body_prev_pos_/rot_ : snapshot of start-of-step pose for velocity update / damping / friction.
-    // body_inertia_pos_/rot_ : inertial target pose q* for AVBD inertial term (predictor output).
-    //
-    // I’m assuming you actually have BOTH position and rotation caches.
-    // If your code currently only has body_inertia_ as Vec3, you should split it into:
-    //   body_inertia_pos_ : std::vector<Vec3>
-    //   body_inertia_rot_ : std::vector<Quat>
-    //
-    // Below I write both; adjust names to your members.
 
     for (size_t i = 0; i < num_bodies; ++i) {
         // -----------------------------
@@ -832,7 +819,6 @@ void VBDSolver::forward_step_rigid_bodies(State &state_in, const float dt) {
         body_inertia_pos_[i] = pred.pos;
         body_inertia_rot_[i] = pred.rot;
     }
-
 }
 
 void VBDSolver::solve(State& state_in, State& state_out, const float dt) {
@@ -998,12 +984,20 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) {
     }
 }
 
-void VBDSolver::update_velocity(State& state_out, const float dt) const {
+void VBDSolver::update_velocity(State& state_out, const float dt) {
 
     const auto num_nodes = model_.num_particles;
+    const auto num_bodies = model_.num_bodies;
 
     for (size_t i = 0; i < num_nodes; ++i) {
         state_out.particle_vel[i] = (state_out.particle_pos[i] - particle_prev_pos_[i]) / dt ;
+    }
+
+    for (size_t i = 0; i < num_bodies; ++i) {
+
+        // state_out.body_lin_vel[i] = (state_out.body_pos[i] - body_prev_pos_[i]) / dt ;
+        // currently don't know how to update angular velocity
+        // state_out.body_ang_vel[i] = (state_out.body_rot[i] - body_prev_rot_[i]) / dt;
     }
 }
 

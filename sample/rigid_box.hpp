@@ -27,11 +27,10 @@ public:
         MModel model;
         Builder builder(model);
 
-        rigid_box_ = builder.add_rigidbody("box", Vec3{0.0f,.5f,0.0f}, Quat::Identity());
+        rigid_box_ = builder.add_rigidbody("box", Vec3{4.0f,5.0f,0.0f}, Quat::Identity());
         auto box_shape = builder.add_shape_box(rigid_box_, 1.0f, 1.0f, 1.0f);
 
-        // bunny = builder.add_bunny(3.0, 0.5);
-        auto box_shape2 =builder.add_shape_box(rigid_box_, 1.0f, 1.0f, 1.0f, Vec3{5.0f, 0.0f, 0.0f});
+        bunny_ = builder.add_bunny(8.0, 0.5);
 
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
@@ -45,18 +44,18 @@ public:
         ShaderManager::SetCommonShaderParams(bunny_shader);
         bunny_shader.locs[SHADER_LOC_MAP_DIFFUSE] = GetShaderLocation(bunny_shader, "texture0");
 
-        auto m_model = renderHelper_.GetRLModel_r(rigid_box_);
-        m_model.materials[0].shader = bunny_shader;
-        m_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
+        auto box_model = renderHelper_.GetRLModel_r(rigid_box_);
+        box_model.materials[0].shader = bunny_shader;
+        box_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
 
-        /*m_model = renderHelper_.GetRLModel_d(bunny);
-        m_model.materials[0].shader = bunny_shader;
-        m_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};*/
+        auto bunny_model = renderHelper_.GetRLModel_d(bunny_);
+        bunny_model.materials[0].shader = bunny_shader;
+        bunny_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
     };
 
 private:
     size_t rigid_box_{};
-    // size_t bunny{};
+    size_t bunny_{};
 };
 
 

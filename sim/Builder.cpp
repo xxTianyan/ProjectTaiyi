@@ -22,6 +22,7 @@ size_t Builder::add_cloth(const float width, const float height,
                           const float wave_amp,
                           const FixSide fix_mask,
                           const char* name) const {
+
     // 1. Validation and basic setup
     if (resX <= 0 || resY <= 0)
         throw std::runtime_error("Builder::add_cloth: resX <= 0 || resY <= 0");
@@ -41,6 +42,8 @@ size_t Builder::add_cloth(const float width, const float height,
     const size_t local_edge_count = internal_bending + horizontal_between + vertical_between;
 
     Builder::CheckVertexLimit(local_particle_count);
+
+    AddDeformableBodyInfo(name, local_particle_count, local_edge_count, local_tri_count, local_tri_count, 0);
 
     const size_t base_particle = model_.mesh_infos.empty() ? 0ull : static_cast<size_t>(model_.mesh_infos.back().particle.end());
     PrepareCapacity(local_particle_count);
@@ -163,8 +166,6 @@ size_t Builder::add_cloth(const float width, const float height,
             }
         }
     }
-
-    AddDeformableBodyInfo(name, local_particle_count, local_edge_count, local_tri_count, local_tri_count, 0);
 
     // 7. Assign mass and handle fixed boundaries
     for (size_t local_i = 0; local_i < local_particle_count; ++local_i) {
