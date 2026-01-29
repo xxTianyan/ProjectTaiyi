@@ -52,8 +52,6 @@ public:
 
     [[nodiscard]] size_t add_sphere(float radius, int res, const Vec3& center, float mass, const char* name) const;
 
-    [[nodiscard]] size_t add_rigidbox(const Vec3& center, const Vec3& half_extents, float mass, const Quat& world_rot = Quat::Identity(),const std::string& name = "rigid_box") const;
-
     [[nodiscard]] size_t add_rigidbody(const std::string &name, const Vec3 &pos, const Quat &rot,
                                        bool kinematic = true, float mass = 0.0f, const Vec3 &com = Vec3::Zero(),
                                        const Mat3 &inertia_tensor = Mat3::Zero()) const;
