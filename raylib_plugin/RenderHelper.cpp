@@ -324,10 +324,10 @@ void RenderHelper::BuildIndicesU16(const MModel& model,
 }
 
 void RenderHelper::QuatToAxisAngleDeg(const Quat &q_in, Vector3 &axis, float& angle_deg) {
-    float w = static_cast<float>(q_in.w());
-    float x = static_cast<float>(q_in.x());
-    float y = static_cast<float>(q_in.y());
-    float z = static_cast<float>(q_in.z());
+    float w = q_in.w();
+    float x = q_in.x();
+    float y = q_in.y();
+    float z = q_in.z();
 
     // normalize
     const float n2 = w*w + x*x + y*y + z*z;

@@ -58,7 +58,7 @@ public:
 
     size_t add_shape_box(size_t body_id, float hx, float hy, float hz, const Vec3 &local_pos = Vec3::Zero(),
                          const Quat &local_rot = Quat::Identity(), float density = -1.0f, float thickness = -1.0f,
-                         float margin = -1.0f, bool contribute_mass = true, bool contribute_render_mesh = true);
+                         float margin = -1.0f, bool contribute_mass = true, bool contribute_render_mesh = true) const;
 
 
 

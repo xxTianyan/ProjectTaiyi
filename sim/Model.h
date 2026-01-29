@@ -120,6 +120,7 @@ struct MModel {
 
     // ---- for rendering ----
     std::vector<render_trangle> render_tris;
+    std::vector<render_trangle> render_tris_body;
 
     [[nodiscard]] State MakeState() const {
         State s;

@@ -723,7 +723,7 @@ void VBDSolver::forward_step_with_penetration(State &state_in, const float dt) {
     }
 }
 
-void VBDSolver::forward_step_rigid_bodies(State &state_in, float dt) {
+void VBDSolver::forward_step_rigid_bodies(State &state_in, const float dt) {
  const size_t num_bodies = model_.num_bodies;
 
     // Gravity is an acceleration in WORLD frame [m/s^2]
