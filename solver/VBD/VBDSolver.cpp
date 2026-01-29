@@ -592,95 +592,77 @@ VBDSolver::body_state VBDSolver::integrate_rigid_body(const Vec3 &pos, const Qua
     out.lin_vel = lin_vel;
     out.ang_vel = ang_vel;
 
-
-    // inv_mass == 0 means infinite mass => solver does not integrate it (pose driven externally).
-    if (inv_mass == 0.0f) {
+    // inv_mass == 0 => kinematic/static body (pose driven externally)
+    if (inv_mass == 0.0f || dt <= 0.0f) {
         return out;
     }
 
-    // - Integrate translation at the COM using semi-implicit Euler.
-    // - Integrate rotation using Euler rigid-body equation in BODY frame:
-    //     I * ω̇ + ω × (I ω) = τ
-    // - Convert between WORLD and BODY frames using the quaternion.
-
-    // ----------------------------
-    // 1) Compute world COM position
-    // ----------------------------
-    // x_com0 = x_origin0 + R0 * com_local
-
     static_assert(Vec3::RowsAtCompileTime == 3 && Vec3::ColsAtCompileTime == 1,
-              "Vec3 must be a fixed-size 3D vector (e.g. Eigen::Vector3f).");
+                  "Vec3 must be a fixed-size 3D vector (e.g. Eigen::Vector3f).");
 
-    const Vec3 x_com0 = pos + rot * com_local;     // [WORLD] COM position [m]
 
-    // ----------------------------
+    // 1) COM position in world
+    const Vec3 x_com0 = pos + rot * com_local;   // [WORLD]
+
+
     // 2) Linear (COM) semi-implicit Euler
-    // ----------------------------
-    // a = F/m + g   (gravity only applies to dynamic bodies, and inv_mass!=0 here)
-    const Vec3 a = force * inv_mass + gravity;     // [WORLD] linear acceleration [m/s^2]
+    const Vec3 a  = force * inv_mass + gravity; // [WORLD]
+    const Vec3 v1 = lin_vel + a * dt;             // [WORLD]
+    const Vec3 x_com1 = x_com0 + v1 * dt;             // [WORLD]
 
-    // v1 = v0 + a*dt
-    const Vec3 v1 = lin_vel + a * dt;              // [WORLD] COM linear velocity [m/s]
+    // 3) Angular: integrate ω in BODY frame using Euler's equation
+    //    I * ωdot + ω × (I ω) = τ
+    const Quat rot0 = rot;                // assume normalized
+    const Quat rot0_inv = rot.conjugate();
 
-    // x_com1 = x_com0 + v1*dt
-    const Vec3 x_com1 = x_com0 + v1 * dt;          // [WORLD] COM position [m]
+    const Vec3 w_body0   = rot0_inv * ang_vel; // [BODY]
+    const Vec3 tau_body0 = rot0_inv * torque;  // [BODY] about COM
 
-    // ----------------------------
-    // 3) Angular dynamics in BODY frame
-    // ----------------------------
-    // Convert ω and τ from WORLD -> BODY:
-    // ω_body0 = R0^T * ω_world0
-    // τ_body0 = R0^T * τ_world0
-    const Quat rot_inv = rot.conjugate();          // inverse rotation (WORLD->BODY)
-    const Vec3 w_body0   = rot_inv * ang_vel;      // [BODY] angular velocity [rad/s]
-    const Vec3 tau_body0 = rot_inv * torque;       // [BODY] torque about COM [N·m]
-
-    // Gyroscopic / Coriolis term: ω × (I ω)
-    // Effective torque in body frame:
-    // τ_eff = τ - ω × (I ω)
-    const Vec3 gyro = w_body0.cross(inertia_tensor * w_body0);   // [BODY] [N·m]
-    const Vec3 tau_eff = tau_body0 - gyro;                       // [BODY] [N·m]
-
-    // ω_body1 = ω_body0 + I^{-1} * τ_eff * dt
-    const Vec3 w_body1 = w_body0 + (inertia_tensor_inv * tau_eff) * dt; // [BODY] [rad/s]
-
-    // Convert back BODY -> WORLD:
-    // ω_world1 = R0 * ω_body1
-    Vec3 w1 = rot * w_body1;                       // [WORLD] [rad/s]
+    const Vec3 gyro_body = w_body0.cross(inertia_tensor * w_body0); // [BODY]
+    const Vec3 w_body1   = w_body0 + (inertia_tensor_inv * (tau_body0 - gyro_body)) * dt; // [BODY]
 
     // ----------------------------
-    // 4) Integrate quaternion orientation
+    // 4) Integrate orientation using BODY ω (more consistent):
+    //    R1 = R0 * exp([ω_body1] dt)
+    //    => q1 = q0 ⊗ dq_body
     // ----------------------------
-    // Quaternion kinematics:
-    //   q̇ = 0.5 * Ω(ω) ⊗ q
-    // Discrete Euler:
-    //   q1 ≈ normalize(q0 + 0.5*dt * (Ω(ω1) ⊗ q0))
-    //
-    // Here Ω(ω) is a pure quaternion (0, ωx, ωy, ωz).
-    // IMPORTANT: This assumes your Quat multiplication matches the convention:
-    //    q_new = (omega_quat * q_old) ... (left multiply)
-    // which is consistent with Warp's: quat(w1,0) * r0.
-    const Quat omega_quat(0.0f, w1.x(), w1.y(), w1.z());         // pure quaternion
+    auto quat_from_omega_body = [](const Vec3& w_body, float dt_local) -> Quat {
+        const float w_norm = w_body.norm();
+        const float theta  = w_norm * dt_local;   // rotation angle
 
-    Quat r1 = rot;
-    r1.coeffs() += (omega_quat * rot).coeffs() * (0.5f * dt);    // Euler step on quaternion
-    r1.normalize();                                              // keep unit quaternion
+        // Small-angle approximation to avoid numerical issues
+        if (theta < 1e-8f) {
+            // dq ≈ [1, 0.5*ω*dt]
+            const Vec3 half = 0.5f * w_body * dt_local;
+            Quat dq(1.0f, half.x(), half.y(), half.z());
+            dq.normalize();
+            return dq;
+        } else {
+            const Vec3 axis = w_body / w_norm;
+            const float half = 0.5f * theta;
+            const float s = std::sin(half);
+            const float c = std::cos(half);
+            return Quat(c, axis.x() * s, axis.y() * s, axis.z() * s);
+        }
+    };
+
+    const Quat dq_body = quat_from_omega_body(w_body1, dt);
+    Quat r1 = rot0 * dq_body;   // right-multiply: body-frame increment
+    r1.normalize();
+
+    // Map ω back to WORLD using the NEW orientation (closed-loop consistent)
+    // newton use r0 here to translate to world frame
+    const Vec3 w1_world = r1 * w_body1; // [WORLD]
 
     // ----------------------------
-    // 5) Reconstruct body-origin position from COM
+    // 5) Reconstruct body-origin position from COM and new orientation
     // ----------------------------
-    // We integrated COM position. Convert back to body-origin:
-    // x_origin1 = x_com1 - R1 * com_local
-    const Vec3 x1 = x_com1 - r1 * com_local;      // [WORLD] body-origin position [m]
+    const Vec3 x1 = x_com1 - r1 * com_local; // [WORLD] origin position
 
-    // ----------------------------
-    // 6) Pack outputs
-    // ----------------------------
-    out.pos     = x1;   // [WORLD] new body-origin position
-    out.rot     = r1;   // [BODY->WORLD] new orientation
-    out.lin_vel = v1;   // [WORLD] new COM linear velocity
-    out.ang_vel = w1;   // [WORLD] new angular velocity
-
+    out.pos     = x1;
+    out.rot     = r1;
+    out.lin_vel = v1;        // COM linear velocity
+    out.ang_vel = w1_world;  // world angular velocity
     return out;
 }
 
