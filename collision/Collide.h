@@ -27,7 +27,7 @@ struct CollideParams {
     int soft_contact_max           = -1;
 
     // debug / perf
-    bool rebuild_pipeline_if_needed = true;
+    bool rebuild_pipeline_if_needed = false;
 };
 
 class CollisionPipeline {
@@ -41,7 +41,6 @@ public:
     // Build pipeline from model (allocate buffers, copy filtered pairs, etc.)
     // make contact ptr in this function.
     void BuildFromModel(const MModel& model, const CollideParams& params);
-
 
     // Update per-call parameters (Newton: self.soft_contact_margin, self.edge_sdf_iter)
     void SetSoftContactMargin(const float m) { soft_contact_margin_ = m; }

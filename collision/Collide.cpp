@@ -7,8 +7,17 @@
 #include "Model.h"
 
 inline Vec3 ClosestPointPlane_Local(const float sx, const float sz, const Vec3& p_local) {
-    const float x = std::max(-sx, std::min(sx, p_local.x()));
-    const float z = std::max(-sz, std::min(sz, p_local.z()));
+    float x, z;
+    if (sx > 0.0f)
+        x = std::max(-sx, std::min(sx, p_local.x()));
+    else
+        x = p_local.x();
+
+    if (sz > 0.0f)
+        z = std::max(-sz, std::min(sz, p_local.z()));
+    else
+        z = p_local.z();
+
     return {x, 0.0f, z};
 }
 
@@ -58,8 +67,18 @@ void CollisionPipeline::BuildFromModel(const MModel &model, const CollideParams 
     topology_version = model.topology_version;
 }
 
-Contacts & CollisionPipeline::Collide(const MModel &model, const State &state) {
+Contacts& CollisionPipeline::Collide(const MModel &model, const State &state) {
 
+    const bool need_rebuild = (topology_version != model.topology_version) || model.collide_params.rebuild_pipeline_if_needed;
+    if (need_rebuild)
+        BuildFromModel(model, model.collide_params);
+
+    cached_contacts_->clear();
+
+    // GenerateSoftContacts_(model, state);
+    BroadPhaseRigidPairs_(model, state);
+    // NarrowPhaseRigidContacts_(model, state);
+    return *cached_contacts_;
 }
 
 void CollisionPipeline::BroadPhaseRigidPairs_(const MModel &model, const State &state) {
@@ -147,7 +166,8 @@ void CollisionPipeline::BroadPhaseRigidPairs_(const MModel &model, const State &
         const int pair_index_ba = shape_b * num_shapes + shape_a;*/
 
         // --- count_contact_points_for_pair  ---
-        auto [num_contacts_a, num_contacts_b] = CountContactPointsForPair_(model.shape_scale, shape_a, shape_b, static_cast<GeoType>(type_a), static_cast<GeoType>(type_b));
+        auto [num_contacts_a, num_contacts_b] = CountContactPointsForPair_(
+            model.shape_scale, shape_a, shape_b, static_cast<GeoType>(type_a), static_cast<GeoType>(type_b));
 
         // assign a limit contacts num for each rigid contact pair, if flag is on, currently useless
         /*if (rigid_contact_max_per_pair_ > 0) {

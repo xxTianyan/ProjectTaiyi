@@ -56,17 +56,18 @@ public:
                                        bool kinematic = true, float mass = 0.0f, const Vec3 &com = Vec3::Zero(),
                                        const Mat3 &inertia_tensor = Mat3::Zero()) const;
 
-    size_t add_shape_box(size_t body_id, float hx, float hy, float hz, const Vec3 &local_pos = Vec3::Zero(),
+    [[nodiscard]] size_t add_shape_box(size_t body_id, float hx, float hy, float hz, const Vec3 &local_pos = Vec3::Zero(),
                          const Quat &local_rot = Quat::Identity(), float density = -1.0f, float thickness = -1.0f,
                          float margin = -1.0f, bool contribute_mass = true, bool contribute_render_mesh = true) const;
 
 
+    [[nodiscard]] size_t add_ground_plane();
 
 private:
 
     MModel& model_;
 
-    float default_shape_contact_margin = 0.1f;
+    float default_shape_contact_margin = 0.01f;
     float default_shape_thickness = 1e-5;
     float default_shape_density = 1000.0f;
 

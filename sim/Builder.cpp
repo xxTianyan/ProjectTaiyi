@@ -611,6 +611,8 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     if (margin    < 0.0f) margin    = default_shape_contact_margin;
 
     const int shape_id = static_cast<int>(model_.shape_body.size());
+    model_.num_shapes++;
+
     const Quat q = local_rot.normalized();
 
     // --- push shape arrays ---
@@ -618,7 +620,7 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     model_.shape_rot0.push_back(q);
     model_.shape_body.push_back(body_id);
     model_.shape_type.push_back(static_cast<int>(GeoType::BOX));
-    model_.shape_scale.push_back(Vec3(hx, hy, hz));
+    model_.shape_scale.emplace_back(hx, hy, hz);
     model_.shape_thickness.push_back(thickness);
     model_.shape_contact_margin.push_back(margin);
     model_.shape_collision_radius.push_back(Vec3(hx, hy, hz).norm());
@@ -704,6 +706,27 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     }
 
     return shape_id;
+}
+
+size_t Builder::add_ground_plane() {
+
+    const int shape_id = static_cast<int>(model_.shape_body.size());
+    model_.num_shapes++;
+
+    // --- push shape arrays ---
+    model_.shape_pos0.emplace_back(Vec3::Zero());
+    model_.shape_rot0.emplace_back(Quat::Identity());
+    model_.shape_body.push_back(-1);  // world shape
+    model_.shape_type.push_back(static_cast<int>(GeoType::PLANE));
+    model_.shape_scale.emplace_back(Vec3::Zero());
+    model_.shape_thickness.push_back(default_shape_thickness);
+    model_.shape_contact_margin.push_back(default_shape_contact_margin);
+    model_.shape_collision_radius.push_back(0.0f);
+
+    model_.topology_version++;
+
+    return shape_id;
+
 }
 
 void Builder::PrepareCapacity(const size_t num) const {

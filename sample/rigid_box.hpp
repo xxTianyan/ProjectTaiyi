@@ -27,10 +27,12 @@ public:
         MModel model;
         Builder builder(model);
 
-        rigid_box_ = builder.add_rigidbody("box", Vec3{0.0f,5.0f,0.0f}, Quat::Identity());
+        rigid_box_ = builder.add_rigidbody("box", Vec3{5.0f,5.0f,0.0f}, Quat::Identity());
         auto box_shape = builder.add_shape_box(rigid_box_, 1.0f, 1.0f, 1.0f);
+        shape_ground_plane_ = builder.add_ground_plane();
 
-        // bunny_ = builder.add_bunny(8.0, 0.5);
+        // add collide pair. temporary
+        model.shape_contact_pairs.emplace_back(box_shape, shape_ground_plane_);
 
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
@@ -48,14 +50,13 @@ public:
         box_model.materials[0].shader = bunny_shader;
         box_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
 
-        /*auto bunny_model = renderHelper_.GetRLModel_d(bunny_);
-        bunny_model.materials[0].shader = bunny_shader;
-        bunny_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};*/
+
     };
 
 private:
     size_t rigid_box_{};
-    // size_t bunny_{};
+    size_t shape_ground_plane_{};
+
 };
 
 

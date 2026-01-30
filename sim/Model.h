@@ -120,7 +120,6 @@ struct MModel {
 
     // ---- for rendering ----
     std::vector<render_trangle> render_tris;
-    std::vector<render_trangle> render_tris_body;
 
     [[nodiscard]] State MakeState() const {
         State s;
@@ -159,7 +158,6 @@ struct MModel {
             collision_pipeline_ = std::make_unique<CollisionPipeline>();
             collision_pipeline_->BuildFromModel(*this, collide_params);
         }
-
         const auto& contacts = collision_pipeline_->Collide(*this, state_in);
         return contacts;
     };
