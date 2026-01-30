@@ -72,6 +72,10 @@ void Sample::Update([[maybe_unused]]AppContext &ctx) {
             for (int s = 0; s < substeps_; s++) {
                 // single substep stack
                 {
+                    // collide here
+                    scene_->model_.collide(scene_->state_out());
+                }
+                {
                     ScopeTimer substep_timer = dbg_ ? dbg_->timer_substep() : ScopeTimer(nullptr);
                     Step(sub_dt);
                 }

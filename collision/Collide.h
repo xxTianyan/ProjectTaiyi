@@ -8,6 +8,9 @@
 #include <memory>
 #include <vector>
 
+#include "Types.h"
+
+struct GeoData;
 enum class GeoType;
 struct MModel;
 struct State;
@@ -55,7 +58,6 @@ public:
      * 1. need topology version check
      * 2. need to clear contact first
      */
-
     Contacts& Collide(const MModel& model, const State& state);
 
 private:
@@ -67,10 +69,19 @@ private:
 
     static int ShapeContactPointCount(GeoType type);
 
-private:
-    bool AllocateContactPoints(int num_contacts_a, int num_contacts_b, int shape_a, int shape_b);
+    // collision
+    bool plane_box_collision(const GeoData &plane, const GeoData &box, Vec3 &p_plane_w, Vec3 &p_box_w, Vec3 &n_w,
+                             float &distance);
 
 private:
+    bool AllocateContactPoints_(int num_contacts_a, int num_contacts_b, int shape_a, int shape_b);
+
+    static std::pair<int, int> CountContactPointsForPair_(const std::vector<Vec3> &shape_scale, int shape_a, int shape_b, GeoType type_a, GeoType type_b);
+
+private:
+    //contact point pair buffer count
+    int rigid_pair_count_{0};
+
     // Immutable-ish after build
     int shape_count_{0};
     int particle_count_{0};
