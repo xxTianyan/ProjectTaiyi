@@ -19,17 +19,17 @@ class RigidBox final : public Sample {
 
 public:
     RigidBox() {
-        max_ticks_per_frame0_ = 8;
-        substeps0_ = 8;
+        max_ticks_per_frame0_ = 2;
+        substeps0_ = 16;
     };
 
     void CreateWorld([[maybe_unused]]AppContext &ctx) override {
         MModel model;
         Builder builder(model);
+        shape_ground_plane_ = builder.add_ground_plane();
 
         rigid_box_ = builder.add_rigidbody("box", Vec3{5.0f,5.0f,0.0f}, Quat::Identity());
         auto box_shape = builder.add_shape_box(rigid_box_, 1.0f, 1.0f, 1.0f);
-        shape_ground_plane_ = builder.add_ground_plane();
 
         // add collide pair. temporary
         model.shape_contact_pairs.emplace_back(box_shape, shape_ground_plane_);

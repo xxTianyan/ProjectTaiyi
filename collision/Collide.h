@@ -30,6 +30,13 @@ struct CollideParams {
     bool rebuild_pipeline_if_needed = false;
 };
 
+struct ContactManifold {
+    Vec3 p_a_world;
+    Vec3 p_b_world;
+    Vec3 normal;
+    float distance;
+};
+
 class CollisionPipeline {
 public:
     CollisionPipeline() = default;
@@ -69,14 +76,14 @@ private:
     static int ShapeContactPointCount(GeoType type);
 
     // collision
-    bool plane_box_collision(const GeoData &plane, const GeoData &box, Vec3 &p_plane_w, Vec3 &p_box_w, Vec3 &n_w,
-                             float &distance);
+    static ContactManifold box_plane_collision(const GeoData &box, const GeoData &plane, int point_id, int edge_sdf_iter);
 
 private:
     bool AllocateContactPoints_(int num_contacts_a, int num_contacts_b, int shape_a, int shape_b);
 
     static std::pair<int, int> CountContactPointsForPair_(const std::vector<Vec3> &shape_scale, int shape_a, int shape_b, GeoType type_a, GeoType type_b);
 
+    static Vec3 get_box_vertex(int point_id, const Vec3& upper);
 private:
     //contact point pair buffer count
     int rigid_pair_count_{0};

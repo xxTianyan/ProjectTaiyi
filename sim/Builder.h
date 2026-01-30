@@ -67,8 +67,8 @@ private:
 
     MModel& model_;
 
-    float default_shape_contact_margin = 0.01f;
-    float default_shape_thickness = 1e-5;
+    float default_shape_contact_margin = 1e-2f;
+    float default_shape_thickness = 1e-4;
     float default_shape_density = 1000.0f;
 
 private:

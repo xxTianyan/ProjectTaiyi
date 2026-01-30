@@ -77,7 +77,8 @@ Contacts& CollisionPipeline::Collide(const MModel &model, const State &state) {
 
     // GenerateSoftContacts_(model, state);
     BroadPhaseRigidPairs_(model, state);
-    // NarrowPhaseRigidContacts_(model, state);
+    NarrowPhaseRigidContacts_(model, state);
+
     return *cached_contacts_;
 }
 
@@ -194,74 +195,63 @@ void CollisionPipeline::BroadPhaseRigidPairs_(const MModel &model, const State &
 void CollisionPipeline::NarrowPhaseRigidContacts_(const MModel &model, const State &state) {
     if (cached_contacts_ == nullptr) return;
 
-    // 1) narrow-phase produces "packed" contacts (like Newton's counter_increment)
+    // narrow-phase produces "packed" contacts
     int& out_count = cached_contacts_->rigid_contact_count();
     out_count = 0;
 
-    // 2) only iterate the valid pair buffer range for this frame
-    //    (broad phase must have set rigid_pair_count_)
+    // only iterate the valid pair buffer range for this frame (broad phase must have set rigid_pair_count_)
     const int pair_count = rigid_pair_count_;
     if (pair_count <= 0) return;
 
     for (int i = 0; i < pair_count; i++) {
         const int shape_a = rigid_pair_shape0_[i];
         const int shape_b = rigid_pair_shape1_[i];
+        const int point_id = rigid_pair_point_id_[i];
 
         if (shape_a < 0 || shape_b < 0) continue;
         if (shape_a == shape_b) continue;
 
-        if (rigid_contact_max_per_pair_ > 0) {
+        /*if (rigid_contact_max_per_pair_ > 0) {
             // pairwise limit, currently empty
-        }
+        }*/
 
         const GeoData geo_a = GeoData::CreateGeoData(shape_a, model, state);
         const GeoData geo_b = GeoData::CreateGeoData(shape_b, model, state);
 
         const float rigid_contact_margin = model.shape_contact_margin[shape_a] + model.shape_contact_margin[shape_b];
+        const float thickness_pair = geo_a.thickness + geo_b.thickness;
+        ContactManifold cm;
 
-        Vec3 pA_w = Vec3::Zero();
-        Vec3 pB_w = Vec3::Zero();
-        Vec3 n_w = Vec3::UnitY();
-        float distance = 1e6;
-        bool valid = false;
 
         // ----- narrow phase dispatch -------
-        // IMPORTANT: normal must always point from A -> B, and distance should satisfy:
+        // IMPORTANT: normal must always point from A -> B
 
         if (geo_a.geo_type == GeoType::PLANE && geo_b.geo_type == GeoType::BOX) {
-            valid = plane_box_collision(geo_a, geo_b, pA_w, pB_w, n_w, distance);
-            if (valid) {
-                Vec3 p_plane, p_box, n;
-                float dist = 1.0e6f;
-                valid = plane_box_collision(geo_a, geo_b, p_plane, p_box, n, dist);
-            }
-
+            cm = box_plane_collision(geo_b, geo_a, point_id, 10);
         } else
             continue;
 
-        if (!valid) continue;
-
-        // skin/thickness logic matching your kernel
-        const float thickness_pair = geo_a.thickness + geo_b.thickness;
         const float total_separation_needed = geo_a.radius_eff + geo_b.radius_eff + thickness_pair;
-
-        const float d = distance - total_separation_needed;
+        const float d = cm.distance - total_separation_needed;
         if (d >= rigid_contact_margin) continue;
 
         // write outputs
-        cached_contacts_->rigid_contact_shape0[i] = shape_a;
-        cached_contacts_->rigid_contact_shape1[i] = shape_b;
+        cached_contacts_->rigid_contact_shape0[out_count] = shape_a;
+        cached_contacts_->rigid_contact_shape1[out_count] = shape_b;
 
-        // store body-local points (NOT shape-local): matches your wp.transform_point(geo.X_bw, p_world)
-        cached_contacts_->rigid_contact_point0[i] = geo_a.X_bw.transformPoint(pA_w);
-        cached_contacts_->rigid_contact_point1[i] = geo_b.X_bw.transformPoint(pB_w);
+        // store body-local points (NOT shape-local): matches wp.transform_point(geo.X_bw, p_world)
+        cached_contacts_->rigid_contact_point0[out_count] = geo_a.X_bw.transformPoint(cm.p_a_world);
+        cached_contacts_->rigid_contact_point1[out_count] = geo_b.X_bw.transformPoint(cm.p_b_world);
 
         const float offset_mag_a = geo_a.radius_eff + geo_a.thickness;
         const float offset_mag_b = geo_b.radius_eff + geo_b.thickness;
 
-        cached_contacts_->rigid_contact_normal[i] = n_w;
-        cached_contacts_->rigid_contact_thickness0[i] = offset_mag_a;
-        cached_contacts_->rigid_contact_thickness1[i] = offset_mag_b;
+        cached_contacts_->rigid_contact_offset0[out_count] = geo_a.X_bw.transformVector(-offset_mag_a * cm.normal);
+        cached_contacts_->rigid_contact_offset1[out_count] = geo_b.X_bw.transformVector(offset_mag_b * cm.normal);
+        cached_contacts_->rigid_contact_normal[out_count] = cm.normal;
+        cached_contacts_->rigid_contact_thickness0[out_count] = offset_mag_a;
+        cached_contacts_->rigid_contact_thickness1[out_count] = offset_mag_b;
+        out_count++;
     }
 };
 
@@ -327,6 +317,13 @@ std::pair<int, int> CollisionPipeline::CountContactPointsForPair_(const std::vec
     return std::make_pair(0, 0);
 }
 
+Vec3 CollisionPipeline::get_box_vertex(int point_id, const Vec3& upper) {
+    const float sign_x = static_cast<float>(point_id % 2) * 2.0f - 1.0f;
+    const float sign_y = static_cast<float>((point_id / 2) % 2) * 2.0f - 1.0f;
+    const float sign_z = static_cast<float>((point_id / 4) % 2) * 2.0f - 1.0f;
+    return { sign_x * upper.x(), sign_y * upper.y(), sign_z * upper.z() };
+}
+
 int CollisionPipeline::ShapeContactPointCount(const GeoType type) {
     switch (type) {
         case GeoType::PLANE:   return 0;
@@ -338,8 +335,32 @@ int CollisionPipeline::ShapeContactPointCount(const GeoType type) {
     }
 }
 
-bool CollisionPipeline::plane_box_collision(const GeoData &plane, const GeoData &box, Vec3 &p_plane_w, Vec3 &p_box_w,
-    Vec3 &n_w, float &distance) {
+ContactManifold CollisionPipeline::box_plane_collision(const GeoData &box, const GeoData &plane, const int point_id, int edge_sdf_iter) {
 
+    auto plane_width = plane.geo_scale[0];
+    auto plane_height = plane.geo_scale[2];
 
+    // currently all plane is infinite
+    // vertex-based contact
+    const Vec3 p_a_body = get_box_vertex(point_id, box.geo_scale);
+    const Vec3 p_a_world = box.X_ws.transformPoint(p_a_body); // box -> world
+    const Vec3 query_b = plane.X_sw.transformPoint(p_a_world);  // world -> plane
+
+    const Vec3 p_b_body = ClosestPointPlane_Local(plane_width, plane_height, query_b);
+    const Vec3 p_b_world = plane.X_ws.transformPoint(p_b_body);  // plane -> world
+
+    const Vec3 diff = p_a_world - p_b_world;
+    const Vec3 normal = plane.X_ws.transformVector(Vec3::UnitY());
+    float distance = diff.dot(normal);
+
+    ContactManifold cm;
+    cm.p_a_world = p_a_world;
+    cm.p_b_world = p_b_world;
+    cm.distance = distance;
+    cm.normal = normal;
+    return cm;
 }
+
+
+
+
