@@ -45,9 +45,9 @@ struct Contacts {
     std::vector<float> rigid_contact_thickness1;
 
     // per-contact shape properties (optional)
-    std::vector<float> rigid_contact_stiffness; // ke
+    /*std::vector<float> rigid_contact_stiffness; // ke
     std::vector<float> rigid_contact_damping;   // kd
-    std::vector<float> rigid_contact_friction;  // mu
+    std::vector<float> rigid_contact_friction;  // mu*/
 
     // soft contacts (particle-shape)
     std::vector<std::int32_t> soft_contact_particle;
@@ -104,7 +104,7 @@ struct Contacts {
         rigid_contact_thickness1.assign(rigid_contact_max, 0.0f);
 
 
-        if (per_contact_shape_properties) {
+        /*if (per_contact_shape_properties) {
             rigid_contact_stiffness.assign(rigid_contact_max, 0.0f);
             rigid_contact_damping.assign(rigid_contact_max, 0.0f);
             rigid_contact_friction.assign(rigid_contact_max, 0.0f);
@@ -112,7 +112,7 @@ struct Contacts {
             rigid_contact_stiffness.clear();
             rigid_contact_damping.clear();
             rigid_contact_friction.clear();
-        }
+        }*/
 
         soft_contact_particle.assign(soft_contact_max, -1);
         soft_contact_shape.assign(soft_contact_max, -1);
@@ -140,11 +140,13 @@ struct Contacts {
         std::ranges::fill(rigid_contact_shape0, -1);
         std::ranges::fill(rigid_contact_shape1, -1);
 
+        /*
         if (per_contact_shape_properties) {
             std::ranges::fill(rigid_contact_stiffness, 0.0f);
             std::ranges::fill(rigid_contact_damping,   0.0f);
             std::ranges::fill(rigid_contact_friction,  0.0f);
         }
+        */
 
         std::ranges::fill(soft_contact_particle, -1);
         std::ranges::fill(soft_contact_shape,    -1);

@@ -61,7 +61,7 @@ public:
                          float margin = -1.0f, bool contribute_mass = true, bool contribute_render_mesh = true) const;
 
 
-    [[nodiscard]] size_t add_ground_plane();
+    [[nodiscard]] size_t add_ground_plane() const;
 
 private:
 

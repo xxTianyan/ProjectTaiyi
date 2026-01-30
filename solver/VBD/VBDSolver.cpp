@@ -583,87 +583,88 @@ void VBDSolver::evaluate_vertex_triangle_contact(const VertexID v, const std::sp
     particle_contact_hessian_[v] += friction_hessian;
 }
 
-VBDSolver::body_state VBDSolver::integrate_rigid_body(const Vec3 &pos, const Quat &rot, const Vec3 &lin_vel, const Vec3 &ang_vel, const Vec3 &force,
-                                                      const Vec3 &torque, const Vec3 &com_local, const float inv_mass,
-                                                      const Mat3 &inertia_tensor, const Mat3& inertia_tensor_inv, const Vec3 &gravity, const float dt) {
-    body_state out{};
-    out.pos     = pos;
-    out.rot     = rot;
-    out.lin_vel = lin_vel;
-    out.ang_vel = ang_vel;
+void VBDSolver::integrate_rigid_body(const Vec3 &x0, const Quat &r0, const Vec3 &v0, const Vec3 &w0,
+                                           const Vec3 &f_ext, const Vec3 &t_ext, const Vec3 &com_local, float inv_mass,
+                                           const Mat3 &I_body, const Mat3 &inv_I_body, const Vec3 &gravity,
+                                           float angular_damping, float dt, /*Outputs*/ Vec3 &x_out, Quat &r_out,
+                                           Vec3 &v_out, Vec3 &w_out) {
 
-    // inv_mass == 0 => kinematic/static body (pose driven externally)
-    if (inv_mass == 0.0f || dt <= 0.0f) {
-        return out;
+
+    if (dt <= 1e-6f) {
+        x_out = x0; r_out = r0; v_out = v0; w_out = w0;
+        return;
     }
 
-    static_assert(Vec3::RowsAtCompileTime == 3 && Vec3::ColsAtCompileTime == 1,
-                  "Vec3 must be a fixed-size 3D vector (e.g. Eigen::Vector3f).");
+    // --- Linear Part (Semi-implicit Euler) ---
+    // 1. 计算当前 World COM
+    // 注意：Eigen 的旋转乘法是 q * v
+    const Vec3 com_world_offset = r0 * com_local;
+    const Vec3 x_com0 = x0 + com_world_offset;
 
+    // 2. 更新线性速度 v1 = v0 + (F/m + g) * dt
+    // 提示: 这里假设 f_ext 是施加在 COM 上的力。如果不是，需要先转换。
+    // Warp 代码中 f 是 spatial wrench，其 top 部分通常指 COM 受力。
+    const Vec3 linear_acc = f_ext * inv_mass + gravity;
+    v_out = v0 + linear_acc * dt;
 
-    // 1) COM position in world
-    const Vec3 x_com0 = pos + rot * com_local;   // [WORLD]
+    // 3. 更新 COM 位置 x_com1 = x_com0 + v1 * dt
+    const Vec3 x_com1 = x_com0 + v_out * dt;
 
+    // --- Angular Part (Body Frame Integration) ---
+    // Euler Equations: I * w_dot + w x (I * w) = tau
 
-    // 2) Linear (COM) semi-implicit Euler
-    const Vec3 a  = force * inv_mass + gravity; // [WORLD]
-    const Vec3 v1 = lin_vel + a * dt;             // [WORLD]
-    const Vec3 x_com1 = x_com0 + v1 * dt;             // [WORLD]
+    // 1. 转到 Body Frame
+    const Quat r0_inv = r0.conjugate();
+    const Vec3 w_body0 = r0_inv * w0;
+    const Vec3 t_body0 = r0_inv * t_ext; // 将世界系力矩转到局部系
 
-    // 3) Angular: integrate ω in BODY frame using Euler's equation
-    //    I * ωdot + ω × (I ω) = τ
-    const Quat rot0 = rot;                // assume normalized
-    const Quat rot0_inv = rot.conjugate();
+    // 2. 计算角加速度贡献 (包含陀螺力矩)
+    // Coriolis/Gyroscopic term: - w x (I * w)
+    const Vec3 ang_mom = I_body * w_body0;
+    const Vec3 gyro_term = w_body0.cross(ang_mom);
 
-    const Vec3 w_body0   = rot0_inv * ang_vel; // [BODY]
-    const Vec3 tau_body0 = rot0_inv * torque;  // [BODY] about COM
+    // 显式积分: w_body1 = w_body0 + I_inv * (tau - w x I w) * dt
+    Vec3 w_body1 = w_body0 + (inv_I_body * (t_body0 - gyro_term)) * dt;
 
-    const Vec3 gyro_body = w_body0.cross(inertia_tensor * w_body0); // [BODY]
-    const Vec3 w_body1   = w_body0 + (inertia_tensor_inv * (tau_body0 - gyro_body)) * dt; // [BODY]
+    // 3. 应用角阻尼 (Angular Damping)
+    if (angular_damping > 0.0f) {
+        w_body1 *= (1.0f - angular_damping * dt);
+    }
 
-    // ----------------------------
-    // 4) Integrate orientation using BODY ω (more consistent):
-    //    R1 = R0 * exp([ω_body1] dt)
-    //    => q1 = q0 ⊗ dq_body
-    // ----------------------------
-    auto quat_from_omega_body = [](const Vec3& w_body, float dt_local) -> Quat {
-        const float w_norm = w_body.norm();
-        const float theta  = w_norm * dt_local;   // rotation angle
+    // --- Rotation Update (Exponential Map) ---
+    // q1 = q0 * exp(w_body * dt / 2)
+    // 你的实现很稳健，这里稍微精简写法
 
-        // Small-angle approximation to avoid numerical issues
-        if (theta < 1e-8f) {
-            // dq ≈ [1, 0.5*ω*dt]
-            const Vec3 half = 0.5f * w_body * dt_local;
-            Quat dq(1.0f, half.x(), half.y(), half.z());
-            dq.normalize();
-            return dq;
-        } else {
-            const Vec3 axis = w_body / w_norm;
-            const float half = 0.5f * theta;
-            const float s = std::sin(half);
-            const float c = std::cos(half);
-            return Quat(c, axis.x() * s, axis.y() * s, axis.z() * s);
-        }
-    };
+    // 计算旋转增量 (Rotation Increment)
+    // 使用 Eigen 的一种常见技巧：虽然 AngleAxis 更直观，但手动计算 Quaternion 更快
+    const float angle = w_body1.norm() * dt;
+    Quat dq;
+    if (angle < 1e-8f) {
+        // Taylor expansion for small angles: q ≈ [1, 0.5*w*dt]
+        // 保持归一化性质的二阶近似：
+        // q = [1 - angle^2/8, 0.5*w*dt]
+        // 但简单的线性近似+normalize通常足够：
+        Vec3 half_vec = 0.5f * dt * w_body1;
+        dq = Quat(1.0f, half_vec.x(), half_vec.y(), half_vec.z());
+    } else {
+        const Vec3 axis = w_body1.normalized(); // 避免除以 norm，直接用计算好的
+        dq = Quat(Eigen::AngleAxisf(angle, axis));
+    }
 
-    const Quat dq_body = quat_from_omega_body(w_body1, dt);
-    Quat r1 = rot0 * dq_body;   // right-multiply: body-frame increment
-    r1.normalize();
+    r_out = r0 * dq;
+    r_out.normalize(); // 防止漂移
 
-    // Map ω back to WORLD using the NEW orientation (closed-loop consistent)
-    // newton use r0 here to translate to world frame
-    const Vec3 w1_world = r1 * w_body1; // [WORLD]
+    // --- Reconstruct State ---
 
-    // ----------------------------
-    // 5) Reconstruct body-origin position from COM and new orientation
-    // ----------------------------
-    const Vec3 x1 = x_com1 - r1 * com_local; // [WORLD] origin position
+    // 1. 计算新的 World Angular Velocity
+    // 你选择了使用 r_out (新姿态) 转换，这是对的。
+    // w_world = R_new * w_body_new
+    w_out = r_out * w_body1;
 
-    out.pos     = x1;
-    out.rot     = r1;
-    out.lin_vel = v1;        // COM linear velocity
-    out.ang_vel = w1_world;  // world angular velocity
-    return out;
+    // 2. 从新的 COM 位置反推原点位置
+    // x_new = x_com1 - R_new * com_local
+    x_out = x_com1 - (r_out * com_local);
+
 }
 
 
@@ -706,100 +707,72 @@ void VBDSolver::forward_step_with_penetration(State &state_in, const float dt) {
 }
 
 void VBDSolver::forward_step_rigid_bodies(State &state_in, const float dt) {
-    const size_t num_bodies = model_.num_bodies;
 
-    // Gravity is an acceleration in WORLD frame [m/s^2]
-    // (In your model it looks like a single gravity vector, not per-world.)
+    const size_t num_bodies = model_.num_bodies;
     const Vec3 g_world = model_.gravity_;
 
-    // -----------------------------
-    // State views (in/out)
-    // -----------------------------
-    auto& pos     = state_in.body_pos;      // [WORLD] body-origin position x [m]
-    auto& rot     = state_in.body_rot;      // [BODY->WORLD] orientation q (unit quaternion)
-    auto& lin_vel = state_in.body_lin_vel;  // [WORLD] COM linear velocity v [m/s]
-    auto& ang_vel = state_in.body_ang_vel;  // [WORLD] angular velocity ω [rad/s]
+    // 预取指针，减少循环内的查找开销
+    auto* pos_ptr     = state_in.body_pos.data();
+    auto* rot_ptr     = state_in.body_rot.data();
+    auto* lin_vel_ptr = state_in.body_lin_vel.data();
+    auto* ang_vel_ptr = state_in.body_ang_vel.data();
 
-    // -----------------------------
-    // Model views (read-only)
-    // -----------------------------
-    auto& inv_mass            = model_.body_inv_mass;         // [1/kg], 0 => kinematic/static
-    auto& com_local           = model_.body_local_com;        // [BODY] origin->COM [m]
-    auto& inertia_tensor      = model_.body_inertia;          // [BODY] inertia about COM [kg·m^2]
-    auto& inertia_tensor_inv  = model_.body_inv_inertia;      // [BODY] inverse inertia [(kg·m^2)^-1]
-
-    // External loads for this step (must be already accumulated in WORLD frame)
-    auto& body_force  = state_in.body_force;   // [WORLD] force at COM [N]
-    auto& body_torque = state_in.body_torque;  // [WORLD] torque about COM [N·m]
+    // 只读数据
+    const auto* inv_mass_ptr = model_.body_inv_mass.data();
 
     for (size_t i = 0; i < num_bodies; ++i) {
-        // -----------------------------
-        // A) Snapshot start-of-step pose
-        // -----------------------------
-        // current_pos : body-origin position in WORLD at start of timestep [m]
-        // current_rot : body orientation BODY->WORLD at start of timestep (unit quaternion)
-        const Vec3 current_pos = pos[i];
-        const Quat current_rot = rot[i];
-
-        body_prev_pos_[i] = current_pos;
-        body_prev_rot_[i] = current_rot;
-
-        // -----------------------------
-        // B) Kinematic/static bodies (inv_mass == 0): do not integrate
-        // -----------------------------
-        const float inv_m = inv_mass[i];
+        constexpr float ang_damping = 0.0f;
+        // 1. 检查静态物体
+        const float inv_m = inv_mass_ptr[i];
         if (inv_m == 0.0f) {
-            // Inertial target is the current pose (no prediction needed/allowed).
-            body_inertia_pos_[i] = current_pos;
-            body_inertia_rot_[i] = current_rot;
+            // 静态物体：惯性目标即为当前位姿
+            body_inertia_pos_[i] = pos_ptr[i];
+            body_inertia_rot_[i] = rot_ptr[i];
             continue;
         }
 
-        // -----------------------------
-        // C) Gather dynamic-body inputs
-        // -----------------------------
-        // These are references (or copies) to the physical state and parameters.
-        const Vec3  &p0   = pos[i];          // [WORLD] body-origin position [m]
-        const Quat  &r0   = rot[i];          // [BODY->WORLD] orientation
-        const Vec3  &v0   = lin_vel[i];      // [WORLD] COM linear velocity [m/s]
-        const Vec3  &w0   = ang_vel[i];      // [WORLD] angular velocity [rad/s]
+        // 2. 准备数据
+        // 直接引用 State 中的数据，避免不必要的拷贝
+        const Vec3& p0 = pos_ptr[i];
+        const Quat& r0 = rot_ptr[i];
+        const Vec3& v0 = lin_vel_ptr[i];
+        const Vec3& w0 = ang_vel_ptr[i];
 
-        const Vec3  &F    = body_force[i];   // [WORLD] net external force at COM [N]
-        const Vec3  &Tau  = body_torque[i];  // [WORLD] net external torque about COM [N·m]
+        // 外部力与力矩
+        const Vec3& F   = state_in.body_force[i];
+        const Vec3& Tau = state_in.body_torque[i];
 
-        const Vec3  &com  = com_local[i];    // [BODY] origin->COM [m]
-        const Mat3  &I    = inertia_tensor[i];      // [BODY] inertia about COM [kg·m^2]
-        const Mat3  &invI = inertia_tensor_inv[i];  // [BODY] inverse inertia [(kg·m^2)^-1]
+        // 模型参数
+        const Vec3& com_local = model_.body_local_com[i];
+        const Mat3& I         = model_.body_inertia[i];
+        const Mat3& invI      = model_.body_inv_inertia[i];
 
-        // -----------------------------
-        // D) Forward integrate (predictor)
-        // -----------------------------
-        // Uses Newton/Warp-aligned semi-implicit Euler + body-frame angular dynamics.
+        // 3. 记录上一步状态 (Previous State for Friction/Damping logic later)
+        body_prev_pos_[i] = p0;
+        body_prev_rot_[i] = r0;
 
-        const body_state pred = integrate_rigid_body(
-            p0, r0,          // pose at start-of-step
-            v0, w0,          // velocities at start-of-step
-            F, Tau,          // external wrench (world)
-            com,             // COM offset (body)
-            inv_m,           // inverse mass
-            I, invI,         // inertia and inverse inertia about COM (body frame)
-            g_world, // gravity (your signature uses non-const refs)
-            dt               // timestep
+        // 4. 执行积分 (In-place update 风格，避免结构体拷贝)
+        Vec3 p_new, v_new, w_new;
+        Quat r_new;
+
+        integrate_rigid_body(
+            p0, r0, v0, w0,
+            F, Tau,
+            com_local, inv_m, I, invI,
+            g_world, ang_damping, dt,
+            // Outputs
+            p_new, r_new, v_new, w_new
         );
 
-        // -----------------------------
-        // E) Write back predicted state
-        // -----------------------------
-        pos[i]     = pred.pos;     // [WORLD] predicted body-origin position
-        rot[i]     = pred.rot;     // [BODY->WORLD] predicted orientation
-        lin_vel[i] = pred.lin_vel; // [WORLD] predicted COM linear velocity
-        ang_vel[i] = pred.ang_vel; // [WORLD] predicted angular velocity
+        // 5. 写回状态
+        pos_ptr[i]     = p_new;
+        rot_ptr[i]     = r_new;
+        lin_vel_ptr[i] = v_new;
+        ang_vel_ptr[i] = w_new;
 
-        // -----------------------------
-        // F) Store inertial target pose q* for AVBD inertial term
-        // -----------------------------
-        body_inertia_pos_[i] = pred.pos;
-        body_inertia_rot_[i] = pred.rot;
+        // 6. 更新惯性目标 (Inertial Target for AVBD solve)
+        body_inertia_pos_[i] = p_new;
+        body_inertia_rot_[i] = r_new;
     }
 }
 

@@ -625,6 +625,11 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     model_.shape_contact_margin.push_back(margin);
     model_.shape_collision_radius.push_back(Vec3(hx, hy, hz).norm());
 
+    // material parameters
+    model_.shape_material_ke.push_back(1e5);
+    model_.shape_material_kd.push_back(1e3);
+    model_.shape_material_mu.push_back(0.5f);
+
     // --- maintain body_shapes_indices/offsets ---
     // Append shape id into flattened list
     model_.body_shapes_indices.push_back(shape_id);
@@ -708,7 +713,7 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     return shape_id;
 }
 
-size_t Builder::add_ground_plane() {
+size_t Builder::add_ground_plane() const {
 
     const int shape_id = static_cast<int>(model_.shape_body.size());
     model_.num_shapes++;
@@ -722,6 +727,11 @@ size_t Builder::add_ground_plane() {
     model_.shape_thickness.push_back(default_shape_thickness);
     model_.shape_contact_margin.push_back(default_shape_contact_margin);
     model_.shape_collision_radius.push_back(0.0f);
+
+    // material parameter
+    model_.shape_material_ke.push_back(1e5);
+    model_.shape_material_kd.push_back(1e3);
+    model_.shape_material_mu.push_back(0.5f);
 
     model_.topology_version++;
 

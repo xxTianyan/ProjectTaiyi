@@ -77,10 +77,11 @@ private:
                                           float collision_radius, float collision_stiffness, float collision_damping,
                                           float friction_mu, float friction_epsilon, float dt);
 
-    static body_state integrate_rigid_body(const Vec3 &pos, const Quat &rot, const Vec3 &lin_vel, const Vec3 &ang_vel,
-                                           const Vec3 &force, const Vec3 &torque, const Vec3 &com_local, float inv_mass,
-                                           const Mat3 &inertia_tensor, const Mat3 &inertia_tensor_inv, const Vec3 &gravity,
-                                           float dt);
+    static void integrate_rigid_body(const Vec3 &x0, const Quat &r0, const Vec3 &v0, const Vec3 &w0,
+                                           const Vec3 &f_ext, const Vec3 &t_ext, const Vec3 &com_local, float inv_mass,
+                                           const Mat3 &I_body, const Mat3 &inv_I_body, const Vec3 &gravity,
+                                           float angular_damping, float dt, /*Outputs*/ Vec3 &x_out, Quat &r_out,
+                                           Vec3 &v_out, Vec3 &w_out);
 
     void BuildAdjacencyInfo();
 
