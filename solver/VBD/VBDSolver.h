@@ -27,11 +27,15 @@ public:
     void set_self_collision(float particle_contact_margin, float particle_rest_shape_contact_exclusion_radius,
                             float conservative_bound_relaxation);
 
-    // detector relevant
+    // detector relevant, temporary
     void draw_triangle_bvh(const AABBTreeDrawSettings& s) const {
         if (detector_)
             detector_->draw_triangle_bvh(s);
     };
+
+    void set_num_pre_alloc_contacts(const int n_pre_alloc_contacts) {
+        num_pre_alloc_contacts = n_pre_alloc_contacts;
+    }
 
 private:
 
@@ -46,7 +50,7 @@ private:
 
     void init_particles(State& state_in, float dt);
 
-    void init_rigid_bodies(State& state_in, float dt);
+    void init_rigid_bodies(State& state_in, const Contacts* contacts, float dt);
 
     void forward_step(State& state_in, float dt);
 
@@ -85,6 +89,10 @@ private:
 
     void BuildAdjacencyInfo();
 
+    void build_body_body_contact_lists(const Contacts* contacts);
+
+    void warm_start_body_body_contact(const Contacts* contacts);
+
     const MModel&  model_;
 
     int num_iters;
@@ -110,6 +118,15 @@ private:
     std::vector<Vec3> body_contact_force_;
     std::vector<Mat3> body_contact_hessian_;
 
+    // ----- contact related ------
+    std::vector<float> body_body_contact_penalty_k_;
+    std::vector<float> body_body_contact_material_ke_;
+    std::vector<float> body_body_contact_material_kd_;
+    std::vector<float> body_body_contact_material_mu_;
+    std::vector<size_t> body_body_contact_counts_;
+    std::vector<size_t> body_body_contact_counts_indices_;
+    size_t num_pre_alloc_contacts = 24;
+    float k_start_body_contact = 100.0f;
 
     ForceElementAdjacencyInfo adjacency_info_;
 

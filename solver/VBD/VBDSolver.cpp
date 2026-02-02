@@ -82,12 +82,19 @@ void VBDSolver::clear() {
         body_prev_rot_.resize(num_bodies);
         body_inertia_pos_.resize(num_bodies);
         body_inertia_rot_.resize(num_bodies);
+        body_contact_force_.resize(num_bodies);
+        body_contact_hessian_.resize(num_bodies);
+
+        body_body_contact_counts_.resize(num_bodies);
+        body_body_contact_counts_indices_.resize(num_bodies * num_pre_alloc_contacts, -1);
     }
 
     std::ranges::fill(particle_contact_force_, Vec3::Zero());
     std::ranges::fill(particle_contact_hessian_, Mat3::Zero());
-    std::ranges::fill(particle_prev_pos_, Vec3::Zero());
-    std::ranges::fill(particle_inertia_, Vec3::Zero());
+
+    std::ranges::fill(body_contact_force_, Vec3::Zero());
+    std::ranges::fill(body_contact_hessian_, Mat3::Zero());
+
 }
 
 void VBDSolver::init_particles(State &state_in, const float dt) {
@@ -103,12 +110,14 @@ void VBDSolver::init_particles(State &state_in, const float dt) {
 
 }
 
-void VBDSolver::init_rigid_bodies(State &state_in, const float dt) {
+void VBDSolver::init_rigid_bodies(State &state_in, const Contacts* contacts, const float dt) {
     if (model_.num_bodies == 0) return;
 
     forward_step_rigid_bodies(state_in, dt);
+    build_body_body_contact_lists(contacts);
+    warm_start_body_body_contact(contacts);
 
-    // warm start, contact list, joint ...
+    // body - particle interation ...
 
 }
 
@@ -122,7 +131,7 @@ void VBDSolver::Step(State& state_in, State& state_out, const Contacts* contacts
 
     init_particles(state_in, dt);
 
-    init_rigid_bodies(state_in, dt);
+    init_rigid_bodies(state_in, contacts, dt);
 
     for (int iter = 0; iter < num_iters; ++iter) {
         ScopeTimer iter_timer = dbg_ ? dbg_->timer_iteration() : ScopeTimer(nullptr);
@@ -1007,6 +1016,62 @@ void VBDSolver::BuildAdjacencyInfo() {
     else {
         AssignOffsets(num_nodes, adjacency_info_.vertex_tets.offsets);
         adjacency_info_.vertex_tets.incidents.clear();
+    }
+}
+
+void VBDSolver::build_body_body_contact_lists(const Contacts *contacts) {
+
+    std::ranges::fill(body_body_contact_counts_.begin(), body_body_contact_counts_.end(), 0);
+
+    const size_t num_rigid_contacts = contacts->rigid_contact_count();
+
+    for (size_t i = 0; i < num_rigid_contacts; ++i) {
+
+        const auto shape0 = contacts->rigid_contact_shape0[i];
+        const auto shape1 = contacts->rigid_contact_shape1[i];
+        const auto body0 = model_.shape_body[shape0];
+        const auto body1 = model_.shape_body[shape1];
+
+        if (body0 >= 0) {
+            const size_t& idx = body_body_contact_counts_[body0]++;
+            if (idx < num_pre_alloc_contacts)
+                body_body_contact_counts_indices_[body0 * num_pre_alloc_contacts + idx] = i;
+        }
+
+        if (body1 >= 0) {
+            const size_t& idx = body_body_contact_counts_[body1]++;
+            if (idx < num_pre_alloc_contacts)
+                body_body_contact_counts_indices_[body1 * num_pre_alloc_contacts + idx] = i;
+        }
+    }
+
+}
+
+void VBDSolver::warm_start_body_body_contact(const Contacts *contacts) {
+
+    const size_t num_rigid_contacts = contacts->rigid_contact_count();
+
+    body_body_contact_penalty_k_.resize(num_rigid_contacts);
+    body_body_contact_material_ke_.resize(num_rigid_contacts);
+    body_body_contact_material_kd_.resize(num_rigid_contacts);
+    body_body_contact_material_mu_.resize(num_rigid_contacts);
+
+    for (size_t i = 0; i < num_rigid_contacts; ++i) {
+        const auto shape0 = contacts->rigid_contact_shape0[i];
+        const auto shape1 = contacts->rigid_contact_shape1[i];
+
+        // Cache averaged material properties (arithmetic mean for stiffness/damping, geometric for friction)
+        const float avg_ke = 0.5 * (model_.shape_material_ke[shape0] + model_.shape_material_ke[shape1]);
+        const float avg_kd = 0.5 * (model_.shape_material_kd[shape0] + model_.shape_material_kd[shape1]);
+        const float avg_mu = std::sqrt(model_.shape_material_mu[shape0] * model_.shape_material_mu[shape1]);
+
+        body_body_contact_material_ke_[i] = avg_ke;
+        body_body_contact_material_kd_[i] = avg_kd;
+        body_body_contact_material_mu_[i] = avg_mu;
+
+        // Reset contact penalty to k_start every frame because contact indices are not persistent across frames.
+        const float k_new = std::min(k_start_body_contact, avg_ke);
+        body_body_contact_penalty_k_[i] = k_new;
     }
 }
 
