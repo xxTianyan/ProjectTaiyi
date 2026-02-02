@@ -67,7 +67,7 @@ void CollisionPipeline::BuildFromModel(const MModel &model, const CollideParams 
     topology_version = model.topology_version;
 }
 
-Contacts& CollisionPipeline::Collide(const MModel &model, const State &state) {
+Contacts* CollisionPipeline::Collide(const MModel &model, const State &state) {
 
     const bool need_rebuild = (topology_version != model.topology_version) || model.collide_params.rebuild_pipeline_if_needed;
     if (need_rebuild)
@@ -79,7 +79,7 @@ Contacts& CollisionPipeline::Collide(const MModel &model, const State &state) {
     BroadPhaseRigidPairs_(model, state);
     NarrowPhaseRigidContacts_(model, state);
 
-    return *cached_contacts_;
+    return cached_contacts_.get();
 }
 
 void CollisionPipeline::BroadPhaseRigidPairs_(const MModel &model, const State &state) {

@@ -22,7 +22,7 @@ public:
         : model_(model), num_iters(num_iters), dbg_(dbg),material_(material) {}
     ~VBDSolver() override = default;
 
-    void Step(State& state_in, State& state_out, float dt) override;
+    void Step(State& state_in, State& state_out, const Contacts* contacts, float dt) override;
 
     void set_self_collision(float particle_contact_margin, float particle_rest_shape_contact_exclusion_radius,
                             float conservative_bound_relaxation);

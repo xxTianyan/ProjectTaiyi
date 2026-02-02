@@ -112,7 +112,7 @@ void VBDSolver::init_rigid_bodies(State &state_in, const float dt) {
 
 }
 
-void VBDSolver::Step(State& state_in, State& state_out, const float dt) {
+void VBDSolver::Step(State& state_in, State& state_out, const Contacts* contacts, const float dt) {
 
     if (dt <= 0.0f) {
         return;

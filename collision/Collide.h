@@ -64,7 +64,7 @@ public:
      * 1. need topology version check
      * 2. need to clear contact first
      */
-    Contacts& Collide(const MModel& model, const State& state);
+    Contacts* Collide(const MModel& model, const State& state);
 
 private:
 

@@ -72,10 +72,6 @@ void Sample::Update([[maybe_unused]]AppContext &ctx) {
             for (int s = 0; s < substeps_; s++) {
                 // single substep stack
                 {
-                    // collide here
-                    scene_->model_.collide(scene_->state_out());
-                }
-                {
                     ScopeTimer substep_timer = dbg_ ? dbg_->timer_substep() : ScopeTimer(nullptr);
                     Step(sub_dt);
                 }
@@ -303,7 +299,13 @@ void Sample::Step(const float dt) {
     if (scene_ == nullptr) return;
     if (solver_ == nullptr) return;
 
-    solver_->Step(scene_->state_in(), scene_->state_out(), dt);
+    const Contacts* contacts;
+    {
+        // collide here
+        contacts = scene_->model_.collide(scene_->state_out());
+    }
+
+    solver_->Step(scene_->state_in(), scene_->state_out(), contacts, dt);
     scene_->SwapStates();
 };
 
