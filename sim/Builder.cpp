@@ -43,9 +43,10 @@ size_t Builder::add_cloth(const float width, const float height,
 
     Builder::CheckVertexLimit(local_particle_count);
 
+    const size_t base_particle = model_.mesh_infos.empty() ? 0ull : static_cast<size_t>(model_.mesh_infos.back().particle.end());
     AddDeformableBodyInfo(name, local_particle_count, local_edge_count, local_tri_count, local_tri_count, 0);
 
-    const size_t base_particle = model_.mesh_infos.empty() ? 0ull : static_cast<size_t>(model_.mesh_infos.back().particle.end());
+
     PrepareCapacity(local_particle_count);
 
     const float dx = width  / static_cast<float>(resX);
@@ -765,14 +766,23 @@ void Builder::AddDeformableBodyInfo(const char* name, const size_t n_particle, c
         info.particle = range{0, n_particle};
         info.edge = range{0, n_edge};
         info.tri = range{0, n_tri};
-        info.render_tri = range{model_.render_tris.size(), n_render_tri};
+        if (model_.body_infos.empty())
+            info.render_tri = range(0, n_render_tri);
+        else
+            info.render_tri = range{model_.body_infos.back().render_tri.end(), n_render_tri};
+
         info.tet = range{0, n_tet};
     } else {
         const auto& last_mesh = model_.mesh_infos.back();
         info.particle = range{last_mesh.particle.end(), n_particle};
         info.edge = range{last_mesh.edge.end(), n_edge};
         info.tri = range{last_mesh.tri.end(), n_tri};
-        info.render_tri = range{model_.render_tris.size(), n_render_tri};
+
+        if (model_.body_infos.empty())
+            info.render_tri = range(last_mesh.render_tri.end(), n_render_tri);
+        else
+            info.render_tri = range{model_.body_infos.back().render_tri.end() + last_mesh.render_tri.end(), n_render_tri};
+
         info.tet = range{last_mesh.tet.end(), n_tet};
     }
     model_.mesh_infos.emplace_back(info);

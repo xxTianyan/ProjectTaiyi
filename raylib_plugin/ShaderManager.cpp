@@ -62,6 +62,11 @@ void ShaderManager::UnloadAll() {
 }
 
 ShaderManager::ManagedShader &ShaderManager::EmplaceOrReplace(const std::string &name) {
+    // 断点停在这里
+    auto s  = m_shaders.size();
+    auto bc = m_shaders.bucket_count();
+    auto lf = m_shaders.load_factor();
+
     auto [it, inserted] = m_shaders.emplace(name, ManagedShader{});
     if (!inserted) {
         if (it->second.shader.id > 0) {
