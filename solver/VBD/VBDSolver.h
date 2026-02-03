@@ -33,17 +33,17 @@ public:
             detector_->draw_triangle_bvh(s);
     };
 
-    void set_num_pre_alloc_contacts(const int n_pre_alloc_contacts) {
+    /*void set_num_pre_alloc_contacts(const int n_pre_alloc_contacts) {
         num_pre_alloc_contacts = n_pre_alloc_contacts;
-    }
+    }*/
 
 public:
-    struct RigidContactEvalResult {
+    /*struct RigidContactEvalResult {
         Vec3 force_0, torque_0;
         Mat3 h_ll_0, h_al_0, h_aa_0;
         Vec3 force_1, torque_1;
         Mat3 h_ll_1, h_al_1, h_aa_1;
-    };
+    };*/
 
 private:
 
@@ -51,17 +51,17 @@ private:
 
     void init_particles(State& state_in, float dt);
 
-    void init_rigid_bodies(State& state_in, const Contacts* contacts, float dt);
+    // void init_rigid_bodies(State& state_in, const Contacts* contacts, float dt);
 
     void forward_step(State& state_in, float dt);
 
     void forward_step_with_penetration(State& state_in, float dt);
 
-    void forward_step_rigid_bodies(State& state_in, float dt);
+    // void forward_step_rigid_bodies(State& state_in, float dt);
 
     void solve(State& state_in, State& state_out, float dt);
 
-    void solve_rigid_body(const State& state_in, State& state_out, const Contacts* contacts, float dt);
+    // void solve_rigid_body(const State& state_in, State& state_out, const Contacts* contacts, float dt);
 
     void update_velocity(State& stat_out, float dt);
 
@@ -84,30 +84,30 @@ private:
                                           float collision_radius, float collision_stiffness, float collision_damping,
                                           float friction_mu, float friction_epsilon, float dt);
 
-    static void integrate_rigid_body(const Vec3 &x0, const Quat &r0, const Vec3 &v0, const Vec3 &w0,
+    /*static void integrate_rigid_body(const Vec3 &x0, const Quat &r0, const Vec3 &v0, const Vec3 &w0,
                                            const Vec3 &f_ext, const Vec3 &t_ext, const Vec3 &com_local, float inv_mass,
                                            const Mat3 &I_body, const Mat3 &inv_I_body, const Vec3 &gravity,
-                                           float angular_damping, float dt, /*Outputs*/ Vec3 &x_out, Quat &r_out,
-                                           Vec3 &v_out, Vec3 &w_out);
+                                           float angular_damping, float dt, /*Outputs#1# Vec3 &x_out, Quat &r_out,
+                                           Vec3 &v_out, Vec3 &w_out);*/
 
-    RigidContactEvalResult evaluate_rigid_contact_from_collision(int body0, int body1, const Vec3 &body0_pos, const Vec3 &body1_pos,
+    /*RigidContactEvalResult evaluate_rigid_contact_from_collision(int body0, int body1, const Vec3 &body0_pos, const Vec3 &body1_pos,
                                                                  const Quat &body0_q, const Quat &body1_q,
                                                                  const Vec3 &contact_point_a_local,
                                                                  const Vec3 &contact_point_b_local,
                                                                  const Vec3 &contact_normal, float penetration_depth,
                                                                  float contact_ke, float contact_kd, float friction_mu,
-                                                                 float friction_epsilon, float dt);
+                                                                 float friction_epsilon, float dt);*/
 
-    void accumulate_rigid_body_force_hessian(size_t body_idx, size_t cp_idx, const State& state_in, const Contacts* contacts, float dt);
+    // void accumulate_rigid_body_force_hessian(size_t body_idx, size_t cp_idx, const State& state_in, const Contacts* contacts, float dt);
 
     void BuildAdjacencyInfo();
 
-    void compute_projected_isotropic_friction(float friction_mu, float normal_load, const Vec3 &n_unit,
-                                              const Vec3 &slip_u, float eps_u, Vec3 &force_out, Mat3 &H_out);
+    /*void compute_projected_isotropic_friction(float friction_mu, float normal_load, const Vec3 &n_unit,
+                                              const Vec3 &slip_u, float eps_u, Vec3 &force_out, Mat3 &H_out);*/
 
-    void build_body_body_contact_lists(const Contacts* contacts);
+    // void build_body_body_contact_lists(const Contacts* contacts);
 
-    void warm_start_body_body_contact(const Contacts* contacts);
+    // void warm_start_body_body_contact(const Contacts* contacts);
 
     const MModel&  model_;
 
@@ -125,7 +125,7 @@ private:
     std::vector<Vec3> particle_contact_force_;
     std::vector<Mat3> particle_contact_hessian_;
 
-    // ---- rigid body ----
+    /*// ---- rigid body ----
     std::vector<Vec3> body_prev_pos_;
     std::vector<Quat> body_prev_rot_;
     std::vector<Vec3> body_inertia_pos_;
@@ -145,7 +145,7 @@ private:
     std::vector<size_t> body_body_contact_counts_;
     std::vector<size_t> body_body_contact_counts_indices_;
     size_t num_pre_alloc_contacts = 24;
-    float k_start_body_contact = 100.0f;
+    float k_start_body_contact = 100.0f;*/
 
     ForceElementAdjacencyInfo adjacency_info_;
 
