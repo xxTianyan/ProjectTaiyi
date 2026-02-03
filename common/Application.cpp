@@ -114,7 +114,6 @@ void Application::DrawAppUI_() {
     // pull down to choose sample
     static int current_index = 0;
     if (const auto& infos = registry_.Infos(); !infos.empty()) {
-        // 同步 index（当你按热键切换后，UI 也要跟上）
         for (int i = 0; i < static_cast<int>(infos.size()); ++i) {
             if (infos[i].id == current_id_) { current_index = i; break; }
         }

@@ -314,6 +314,7 @@ private:
         TimeBar("One Iteration", stats.time_single_iteration.avg_ms(), stats.time_total_physical_frame.avg_ms(), col_);
         TimeBar("Accumulate Gradient", stats.time_gradient_update.avg_ms(), stats.time_total_physical_frame.avg_ms(), col_);
         TimeBar("Linear Solve", stats.time_linear_solve.avg_ms(), stats.time_total_physical_frame.avg_ms(), col_);
+        // TimeBar("Custom Timer", stats.time_random.avg_ms(), stats.time_total_physical_frame.avg_ms(), col_);
         // ImGui::Unindent();
     }
 

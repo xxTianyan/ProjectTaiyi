@@ -298,12 +298,12 @@ void Sample::Step(const float dt) {
 
     if (scene_ == nullptr) return;
     if (solver_ == nullptr) return;
-
-    const Contacts* contacts;
+    const Contacts* contacts = nullptr;
+    /*const Contacts* contacts;
     {
         // collide here
         contacts = scene_->model_.collide(scene_->state_out());
-    }
+    }*/
 
     solver_->Step(scene_->state_in(), scene_->state_out(), contacts, dt);
     scene_->SwapStates();

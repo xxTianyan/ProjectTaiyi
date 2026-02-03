@@ -116,6 +116,7 @@ void VBDSolver::init_particles(State &state_in, const float dt) {
 }
 
 void VBDSolver::init_rigid_bodies(State &state_in, const Contacts* contacts, const float dt) {
+
     if (model_.num_bodies == 0) return;
 
     forward_step_rigid_bodies(state_in, dt);
@@ -136,12 +137,12 @@ void VBDSolver::Step(State& state_in, State& state_out, const Contacts* contacts
 
     init_particles(state_in, dt);
 
-    init_rigid_bodies(state_in, contacts, dt);
+    // init_rigid_bodies(state_in, contacts, dt);
 
     for (int iter = 0; iter < num_iters; ++iter) {
         ScopeTimer iter_timer = dbg_ ? dbg_->timer_iteration() : ScopeTimer(nullptr);
         solve(state_in, state_out, dt);
-        solve_rigid_body(state_in, state_out, contacts, dt);
+        // solve_rigid_body(state_in, state_out, contacts, dt);
     }
     update_velocity(state_out, dt);
 }
@@ -809,6 +810,74 @@ VBDSolver::RigidContactEvalResult VBDSolver::evaluate_rigid_contact_from_collisi
 
 }
 
+void VBDSolver::accumulate_rigid_body_force_hessian(const size_t body_idx, const size_t cp_idx, const State &state_in, const Contacts *contacts, float dt) {
+
+    const size_t contact_idx = body_body_contact_counts_indices_[body_idx * num_pre_alloc_contacts + cp_idx];
+
+    // safety check
+    if (static_cast<int>(contact_idx) >= contacts->rigid_contact_count())
+        return;
+
+    // get shape and body
+    const int shape0 = contacts->rigid_contact_shape0[contact_idx];
+    const int shape1 = contacts->rigid_contact_shape1[contact_idx];
+    const int b0 = model_.shape_body[shape0];
+    const int b1 = model_.shape_body[shape1];
+
+    const auto body0_pos = b0 >= 0 ? state_in.body_pos[b0] : Vec3::Zero();
+    const auto body1_pos = b1 >= 0 ? state_in.body_pos[b1] : Vec3::Zero();
+    const auto body0_rot = b0 >= 0 ? state_in.body_rot[b0] : Quat::Identity();
+    const auto body1_rot = b1 >= 0 ? state_in.body_rot[b1] : Quat::Identity();
+
+    if (b0 != static_cast<int>(body_idx) && b1 != static_cast<int>(body_idx))
+        throw std::runtime_error("VBDSolver::solve_rigid_bodies()::body shape incompact");
+
+    // get data
+    const Vec3& cp0_local = contacts->rigid_contact_point0[contact_idx];
+    const Vec3& cp1_local = contacts->rigid_contact_point1[contact_idx];
+    const Vec3& contact_normal = contacts->rigid_contact_normal[contact_idx];
+
+    // transform to world space
+    Vec3 cp0_world = b0 >= 0 ? body0_rot * cp0_local + body0_pos : cp0_local;
+    Vec3 cp1_world = b1 >= 0 ? body1_rot * cp1_local + body1_pos : cp1_local;
+
+    // compute penetration
+    const float thickness = contacts->rigid_contact_thickness0[contact_idx] + contacts->rigid_contact_thickness1[contact_idx];
+    const float dist = contact_normal.dot(cp1_world - cp0_world);
+    const float penetration = thickness - dist;
+
+    if (penetration < 1e-5)
+        return;
+
+    // get material parameters
+    const float contact_ke = body_body_contact_penalty_k_[contact_idx];
+    const float contact_kd = body_body_contact_material_kd_[contact_idx];
+    const float contact_mu = body_body_contact_material_mu_[contact_idx];
+
+    // evaluate force and hessian
+    const auto &res =
+        evaluate_rigid_contact_from_collision(b0, b1, body0_pos, body1_pos, body0_rot, body1_rot, cp0_local, cp1_local,
+                                              contact_normal, penetration, contact_ke, contact_kd, contact_mu, 1e-4,
+                                              dt);
+
+    if (static_cast<int>(body_idx) == b0) {
+        body_force_[body_idx] += res.force_0;
+        body_torque_[body_idx] += res.torque_0;
+        body_hessian_ll_[body_idx] += res.h_ll_0;
+        body_hessian_al_[body_idx] += res.h_al_0;
+        body_hessian_aa_[body_idx] += res.h_aa_0;
+    } else {
+        body_force_[body_idx] += res.force_1;
+        body_torque_[body_idx] += res.torque_1;
+        body_hessian_ll_[body_idx] += res.h_ll_1;
+        body_hessian_al_[body_idx] += res.h_al_1;
+        body_hessian_aa_[body_idx] += res.h_aa_1;
+    }
+}
+
+
+
+
 void VBDSolver::solve_rigid_body(const State &state_in, State &state_out, const Contacts* contacts, const float dt) {
 
     for (size_t b = 0; b < model_.num_bodies; b++) {
@@ -819,69 +888,11 @@ void VBDSolver::solve_rigid_body(const State &state_in, State &state_out, const 
         const size_t num_contacts = body_body_contact_counts_[b];
 
         for (size_t c = 0; c < num_contacts; c++) {
-            const size_t contact_idx = body_body_contact_counts_indices_[b * num_pre_alloc_contacts + c];
-
-            // safety check
-            if (static_cast<int>(contact_idx) >= contacts->rigid_contact_count())
-                continue;
-
-            // get shape and body
-            const int shape0 = contacts->rigid_contact_shape0[contact_idx];
-            const int shape1 = contacts->rigid_contact_shape1[contact_idx];
-            const int b0 = model_.shape_body[shape0];
-            const int b1 = model_.shape_body[shape1];
-
-            const auto body0_pos = b0 >= 0 ? state_in.body_pos[b0] : Vec3::Zero();
-            const auto body1_pos = b1 >= 0 ? state_in.body_pos[b1] : Vec3::Zero();
-            const auto body0_rot = b0 >= 0 ? state_in.body_rot[b0] : Quat::Identity();
-            const auto body1_rot = b1 >= 0 ? state_in.body_rot[b1] : Quat::Identity();
-
-
-            if (b0 != static_cast<int>(b) && b1 != static_cast<int>(b))
-                throw std::runtime_error("VBDSolver::solve_rigid_bodies()::body shape incompact");
-
-            // get data
-            const Vec3& cp0_local = contacts->rigid_contact_point0[contact_idx];
-            const Vec3& cp1_local = contacts->rigid_contact_point1[contact_idx];
-            const Vec3& contact_normal = contacts->rigid_contact_normal[contact_idx];
-
-            // transform to world space
-            Vec3 cp0_world = b0 >= 0 ? body0_rot * cp0_local + body0_pos : cp0_local;
-            Vec3 cp1_world = b1 >= 0 ? body1_rot * cp1_local + body1_pos : cp1_local;
-
-            // compute penetration
-            const float thickness = contacts->rigid_contact_thickness0[contact_idx] + contacts->rigid_contact_thickness1[contact_idx];
-            const float dist = contact_normal.dot(cp1_world - cp0_world);
-            const float penetration = thickness - dist;
-
-            if (penetration < 1e-5)
-                continue;
-
-            // get material parameters
-            const float contact_ke = body_body_contact_penalty_k_[contact_idx];
-            const float contact_kd = body_body_contact_material_kd_[contact_idx];
-            const float contact_mu = body_body_contact_material_mu_[contact_idx];
-
-            // evaluate force and hessian
-            const auto &res =
-                evaluate_rigid_contact_from_collision(b0, b1, body0_pos, body1_pos, body0_rot, body1_rot, cp0_local,
-                                                      cp1_local, contact_normal, penetration, contact_ke, contact_kd,
-                                                      contact_mu, 1e-4, dt);
-
-            if (static_cast<int>(b) == b0) {
-                body_force_[b] += res.force_0;
-                body_torque_[b] += res.torque_0;
-                body_hessian_ll_[b] += res.h_ll_0;
-                body_hessian_al_[b] += res.h_al_0;
-                body_hessian_aa_[b] += res.h_aa_0;
-            } else {
-                body_force_[b] += res.force_1;
-                body_torque_[b] += res.torque_1;
-                body_hessian_ll_[b] += res.h_ll_1;
-                body_hessian_al_[b] += res.h_al_1;
-                body_hessian_aa_[b] += res.h_aa_1;
-            }
+            accumulate_rigid_body_force_hessian(b, c, state_in, contacts, dt);
         }
+
+        const Quat& q_current = state_in.body_rot[b];
+
     }
 }
 
@@ -1034,7 +1045,7 @@ void VBDSolver::solve(State& state_in, State& state_out, const float dt) {
             const Vec3 plane_n(0.0f, 1.0f, 0.0f);
 
             // Contact stiffness scaling: ke ~ factor * m/dt^2 keeps behavior stable across dt
-            const float ke_factor = 1.0f;
+            const float ke_factor = 10.0f;
 
             // Newton uses damping_coeff = kd_ratio * ke
             const float kd_ratio = 0.02f;  // start tiny (0~0.05)
@@ -1257,6 +1268,9 @@ void VBDSolver::build_body_body_contact_lists(const Contacts *contacts) {
 
     std::ranges::fill(body_body_contact_counts_.begin(), body_body_contact_counts_.end(), 0);
 
+    if (contacts != nullptr)
+        return;
+
     const size_t num_rigid_contacts = contacts->rigid_contact_count();
 
     for (size_t i = 0; i < num_rigid_contacts; ++i) {
@@ -1282,6 +1296,9 @@ void VBDSolver::build_body_body_contact_lists(const Contacts *contacts) {
 }
 
 void VBDSolver::warm_start_body_body_contact(const Contacts *contacts) {
+
+    if (contacts != nullptr)
+        return;
 
     const size_t num_rigid_contacts = contacts->rigid_contact_count();
 

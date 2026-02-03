@@ -88,6 +88,7 @@ struct DebugFrameStats {
     TimerStat time_total_physical_frame;     // 整帧耗时
     TimerStat time_single_substep;   // 所有子步总耗时
     TimerStat time_single_iteration;
+    TimerStat time_random;
     TimerStat time_linear_solve;    // 线性方程组求解耗时
     TimerStat time_gradient_update; // 梯度/Hessian构建耗时
 
@@ -192,6 +193,7 @@ public:
     ScopeTimer timer_iteration() { return ScopeTimer(&current_frame_.time_single_iteration); }
     ScopeTimer timer_linear_solve() { return ScopeTimer(&current_frame_.time_linear_solve); }
     ScopeTimer timer_gradient() { return ScopeTimer(&current_frame_.time_gradient_update); }
+    ScopeTimer test_timer() {return ScopeTimer(&current_frame_.time_random); }
 
     // 通用接口，如果你想计时一些临时变量
     static ScopeTimer timer_custom(TimerStat* target_ptr) { return ScopeTimer(target_ptr); }

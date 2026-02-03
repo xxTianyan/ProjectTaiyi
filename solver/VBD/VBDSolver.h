@@ -62,6 +62,7 @@ private:
     void solve(State& state_in, State& state_out, float dt);
 
     void solve_rigid_body(const State& state_in, State& state_out, const Contacts* contacts, float dt);
+
     void update_velocity(State& stat_out, float dt);
 
     static void accumulate_stvk_triangle_force_hessian(std::span<const Vec3> pos, const MMaterial &mat,
@@ -96,6 +97,8 @@ private:
                                                                  const Vec3 &contact_normal, float penetration_depth,
                                                                  float contact_ke, float contact_kd, float friction_mu,
                                                                  float friction_epsilon, float dt);
+
+    void accumulate_rigid_body_force_hessian(size_t body_idx, size_t cp_idx, const State& state_in, const Contacts* contacts, float dt);
 
     void BuildAdjacencyInfo();
 
