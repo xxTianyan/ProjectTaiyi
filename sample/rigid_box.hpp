@@ -28,7 +28,7 @@ public:
         Builder builder(model);
         shape_ground_plane_ = builder.add_ground_plane();
 
-        rigid_box_ = builder.add_rigidbody("box", Vec3{5.0f,5.0f,0.0f}, Quat::Identity());
+        rigid_box_ = builder.add_rigidbody("box", Vec3{0.0f,5.0f,0.0f}, Quat::Identity());
         auto box_shape = builder.add_shape_box(rigid_box_, 1.0f, 1.0f, 1.0f);
 
         // add collide pair. temporary

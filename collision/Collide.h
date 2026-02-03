@@ -84,7 +84,9 @@ private:
     static std::pair<int, int> CountContactPointsForPair_(const std::vector<Vec3> &shape_scale, int shape_a, int shape_b, GeoType type_a, GeoType type_b);
 
     static Vec3 get_box_vertex(int point_id, const Vec3& upper);
+
 private:
+
     //contact point pair buffer count
     int rigid_pair_count_{0};
 

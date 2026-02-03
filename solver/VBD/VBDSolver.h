@@ -37,14 +37,15 @@ public:
         num_pre_alloc_contacts = n_pre_alloc_contacts;
     }
 
-private:
-
-    struct body_state {
-        Vec3 pos;
-        Quat rot;
-        Vec3 lin_vel;
-        Vec3 ang_vel;
+public:
+    struct RigidContactEvalResult {
+        Vec3 force_0, torque_0;
+        Mat3 h_ll_0, h_al_0, h_aa_0;
+        Vec3 force_1, torque_1;
+        Mat3 h_ll_1, h_al_1, h_aa_1;
     };
+
+private:
 
      void clear() override;
 
@@ -60,6 +61,7 @@ private:
 
     void solve(State& state_in, State& state_out, float dt);
 
+    void solve_rigid_body(const State& state_in, State& state_out, const Contacts* contacts, float dt);
     void update_velocity(State& stat_out, float dt);
 
     static void accumulate_stvk_triangle_force_hessian(std::span<const Vec3> pos, const MMaterial &mat,
@@ -87,7 +89,18 @@ private:
                                            float angular_damping, float dt, /*Outputs*/ Vec3 &x_out, Quat &r_out,
                                            Vec3 &v_out, Vec3 &w_out);
 
+    RigidContactEvalResult evaluate_rigid_contact_from_collision(int body0, int body1, const Vec3 &body0_pos, const Vec3 &body1_pos,
+                                                                 const Quat &body0_q, const Quat &body1_q,
+                                                                 const Vec3 &contact_point_a_local,
+                                                                 const Vec3 &contact_point_b_local,
+                                                                 const Vec3 &contact_normal, float penetration_depth,
+                                                                 float contact_ke, float contact_kd, float friction_mu,
+                                                                 float friction_epsilon, float dt);
+
     void BuildAdjacencyInfo();
+
+    void compute_projected_isotropic_friction(float friction_mu, float normal_load, const Vec3 &n_unit,
+                                              const Vec3 &slip_u, float eps_u, Vec3 &force_out, Mat3 &H_out);
 
     void build_body_body_contact_lists(const Contacts* contacts);
 
@@ -115,8 +128,11 @@ private:
     std::vector<Vec3> body_inertia_pos_;
     std::vector<Quat> body_inertia_rot_;
 
-    std::vector<Vec3> body_contact_force_;
-    std::vector<Mat3> body_contact_hessian_;
+    std::vector<Vec3> body_force_;
+    std::vector<Vec3> body_torque_;
+    std::vector<Mat3> body_hessian_aa_;
+    std::vector<Mat3> body_hessian_al_;
+    std::vector<Mat3> body_hessian_ll_;
 
     // ----- contact related ------
     std::vector<float> body_body_contact_penalty_k_;

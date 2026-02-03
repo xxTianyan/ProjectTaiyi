@@ -354,8 +354,9 @@ ContactManifold CollisionPipeline::box_plane_collision(const GeoData &box, const
     float distance = diff.dot(normal);
 
     ContactManifold cm;
-    cm.p_a_world = p_a_world;
-    cm.p_b_world = p_b_world;
+    // in narrow phase, shape0 is plane, shape1 is box. Thus, need to sawp.
+    cm.p_a_world = p_b_world;
+    cm.p_b_world = p_a_world;
     cm.distance = distance;
     cm.normal = normal;
     return cm;

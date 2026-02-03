@@ -28,13 +28,13 @@ inline Mat3 Cofactor(const Mat3& F){
 // -------- friction (IPC-like smooth) --------
 inline void compute_projected_isotropic_friction_ipc(
     const float mu, const float fn, const Vec3& n_unit,
-    const Vec3& rel_translation, const float eps_u,
+    const Vec3& slip_u, const float eps_u,
     Vec3& f_out, Mat3& H_out) {
     // P = I - n n^T
     const Mat3 P = Mat3::Identity() - n_unit * n_unit.transpose();
 
     // tangential relative displacement
-    const Vec3 t = P * rel_translation;
+    const Vec3 t = P * slip_u;
     const float t2 = t.squaredNorm();
     const float d  = std::sqrt(t2 + eps_u * eps_u);
 
@@ -82,8 +82,11 @@ void VBDSolver::clear() {
         body_prev_rot_.resize(num_bodies);
         body_inertia_pos_.resize(num_bodies);
         body_inertia_rot_.resize(num_bodies);
-        body_contact_force_.resize(num_bodies);
-        body_contact_hessian_.resize(num_bodies);
+        body_force_.resize(num_bodies);
+        body_torque_.resize(num_bodies);
+        body_hessian_aa_.resize(num_bodies);
+        body_hessian_al_.resize(num_bodies);
+        body_hessian_ll_.resize(num_bodies);
 
         body_body_contact_counts_.resize(num_bodies);
         body_body_contact_counts_indices_.resize(num_bodies * num_pre_alloc_contacts, -1);
@@ -92,9 +95,11 @@ void VBDSolver::clear() {
     std::ranges::fill(particle_contact_force_, Vec3::Zero());
     std::ranges::fill(particle_contact_hessian_, Mat3::Zero());
 
-    std::ranges::fill(body_contact_force_, Vec3::Zero());
-    std::ranges::fill(body_contact_hessian_, Mat3::Zero());
-
+    std::ranges::fill(body_force_, Vec3::Zero());
+    std::ranges::fill(body_torque_, Vec3::Zero());
+    std::ranges::fill(body_hessian_aa_, Mat3::Zero());
+    std::ranges::fill(body_hessian_al_, Mat3::Zero());
+    std::ranges::fill(body_hessian_ll_, Mat3::Zero());
 }
 
 void VBDSolver::init_particles(State &state_in, const float dt) {
@@ -136,6 +141,7 @@ void VBDSolver::Step(State& state_in, State& state_out, const Contacts* contacts
     for (int iter = 0; iter < num_iters; ++iter) {
         ScopeTimer iter_timer = dbg_ ? dbg_->timer_iteration() : ScopeTimer(nullptr);
         solve(state_in, state_out, dt);
+        solve_rigid_body(state_in, state_out, contacts, dt);
     }
     update_velocity(state_out, dt);
 }
@@ -676,6 +682,209 @@ void VBDSolver::integrate_rigid_body(const Vec3 &x0, const Quat &r0, const Vec3 
 
 }
 
+VBDSolver::RigidContactEvalResult VBDSolver::evaluate_rigid_contact_from_collision(
+    int body0, int body1, const Vec3 &body0_pos, const Vec3 &body1_pos, const Quat &body0_q, const Quat &body1_q,
+    const Vec3 &contact_point_a_local, const Vec3 &contact_point_b_local, const Vec3 &contact_normal,
+    float penetration_depth, float contact_ke, float contact_kd, float friction_mu, float friction_epsilon, float dt) {
+
+    Vec3 zero_vec = Vec3::Zero();
+    Mat3 zero_mat = Mat3::Zero();
+
+    // safe exit: no penetration or no stiffness,
+    if (penetration_depth <= 0.0f || contact_ke <= 0.0f) {
+        return {zero_vec, zero_vec, zero_mat, zero_mat, zero_mat,
+                zero_vec, zero_vec, zero_mat, zero_mat, zero_mat};
+    }
+
+    // prepare body A state
+    TTransform X_wa, X_wa_prev;
+    Vec3 body_a_com_local;
+    if (body0 < 0) {
+        X_wa = TTransform::Identity();
+        X_wa_prev = TTransform::Identity();
+        body_a_com_local = Vec3::Zero();
+    } else {
+        X_wa.p = body0_pos;
+        X_wa.q = body0_q;
+        X_wa_prev.p = body_prev_pos_[body0];
+        X_wa.q = body_prev_rot_[body0];
+        body_a_com_local = model_.body_local_com[body0];
+    }
+
+    // prepare body B state
+    TTransform X_wb, X_wb_prev;
+    Vec3 body_b_com_local;
+    if (body1 < 0) {
+        X_wb = TTransform::Identity();
+        X_wb_prev = TTransform::Identity();
+        body_b_com_local = Vec3::Zero();
+    } else {
+        X_wb.p = body1_pos;
+        X_wb.q = body1_q;
+        X_wb_prev.p = body_prev_pos_[body1];
+        X_wb.q = body_prev_rot_[body1];
+        body_b_com_local = model_.body_local_com[body1];
+    }
+
+    // center of mas in world frame
+    Vec3 body_a_com_world = X_wa.transformPoint(body_a_com_local);
+    Vec3 body_b_com_world = X_wb.transformPoint(body_b_com_local);
+
+    // compute contact point in world frame (current & previous)
+    Vec3 cp_a_world = X_wa.transformPoint(contact_point_a_local);
+    Vec3 cp_b_world = X_wb.transformPoint(contact_point_b_local);
+    Vec3 cp_a_world_prev = X_wa_prev.transformPoint(contact_point_a_local);
+    Vec3 cp_b_world_prev = X_wb_prev.transformPoint(contact_point_b_local);
+
+    // compute relative movement (finite difference)
+    Vec3 dx_a = cp_a_world - cp_a_world_prev;
+    Vec3 dx_b = cp_b_world - cp_b_world_prev;
+    Vec3 dx_rel = dx_b - dx_a;
+
+    // compute normal force
+    // Hessian K = ke * (n outer n)
+    Mat3 n_outer = contact_normal * contact_normal.transpose();
+    Vec3 f_total = contact_normal * (contact_ke * penetration_depth);
+    Mat3 K_total = contact_ke * n_outer;
+
+    // compute relative velocity and damping friction
+    Vec3 v_rel = dx_rel / dt;
+    float v_dot_n = contact_normal.dot(v_rel);
+
+    // damping only when compressing (v_n < 0, bodies approaching)
+    if (v_dot_n < 0.0f && contact_kd > 0.0f) {
+        float damping_coeff = contact_kd * contact_ke;
+        Vec3 damping_force = -damping_coeff * v_dot_n * contact_normal;
+        Mat3 damping_hessian = (damping_coeff / dt) * n_outer;
+        f_total += damping_force;
+        K_total += damping_hessian;
+    }
+
+    // normal load for friction
+    const float normal_load = contact_ke * penetration_depth;
+
+    // Friction forces (isotropic, no explicit tangent basis)
+    if (friction_mu > 0.0f && normal_load > 0.0f) {
+        // Tangential slip (world space)
+        Vec3 v_n = contact_normal * v_dot_n;
+        Vec3 v_t = v_rel - v_n;
+        Vec3 u = v_t * dt;
+        float eps_u = friction_epsilon * dt;
+
+        // Projected isotropic friction (no explicit tangent basis)
+        Vec3 ff; Mat3 fh;
+        compute_projected_isotropic_friction(friction_mu, normal_load, contact_normal, u, 1e-5, ff, fh);
+
+        f_total += ff;
+        K_total += fh;
+    }
+
+    // Split total contact force to both bodies (Newton's 3rd law)
+    Vec3 force_a = -f_total;    // Force on A (opposite to normal, pushes A away from B)
+    Vec3 force_b = f_total;  // Force on B (along normal, pushes B away from A)
+
+    // Torque arms and resulting torques
+    Vec3 r_a = cp_a_world - body_a_com_world;
+    Vec3 r_b = cp_b_world - body_b_com_world;
+
+    // Angular/linear coupling using contact-point Jacobian J = [-[r]x, I]
+    Mat3 r_a_skew = TY::Skew(r_a);
+    Mat3 r_a_skew_T_K = r_a_skew.transpose() * K_total;
+    Vec3 torque_a = r_a.cross(force_a);
+    Mat3 h_aa_a = r_a_skew_T_K * r_a_skew;
+    Mat3 h_al_a = -r_a_skew_T_K;
+
+    Mat3 h_ll_a = K_total;
+
+    Mat3 r_b_skew = TY::Skew(r_b);
+    Mat3 r_b_skew_T_K = r_b_skew.transpose() * K_total;
+    Vec3 torque_b = r_b.cross(force_b);
+    Mat3 h_aa_b = r_b_skew_T_K * r_b_skew;
+    Mat3 h_al_b = -r_b_skew_T_K;
+
+    Mat3 h_ll_b = K_total;
+
+    return {force_a, torque_a, h_ll_a, h_al_a, h_aa_a,
+                  force_b, torque_b, h_ll_b, h_al_b, h_aa_b};
+
+}
+
+void VBDSolver::solve_rigid_body(const State &state_in, State &state_out, const Contacts* contacts, const float dt) {
+
+    for (size_t b = 0; b < model_.num_bodies; b++) {
+
+        if (model_.body_inv_mass[b] <= 0.0f)
+            continue;
+
+        const size_t num_contacts = body_body_contact_counts_[b];
+
+        for (size_t c = 0; c < num_contacts; c++) {
+            const size_t contact_idx = body_body_contact_counts_indices_[b * num_pre_alloc_contacts + c];
+
+            // safety check
+            if (static_cast<int>(contact_idx) >= contacts->rigid_contact_count())
+                continue;
+
+            // get shape and body
+            const int shape0 = contacts->rigid_contact_shape0[contact_idx];
+            const int shape1 = contacts->rigid_contact_shape1[contact_idx];
+            const int b0 = model_.shape_body[shape0];
+            const int b1 = model_.shape_body[shape1];
+
+            const auto body0_pos = b0 >= 0 ? state_in.body_pos[b0] : Vec3::Zero();
+            const auto body1_pos = b1 >= 0 ? state_in.body_pos[b1] : Vec3::Zero();
+            const auto body0_rot = b0 >= 0 ? state_in.body_rot[b0] : Quat::Identity();
+            const auto body1_rot = b1 >= 0 ? state_in.body_rot[b1] : Quat::Identity();
+
+
+            if (b0 != static_cast<int>(b) && b1 != static_cast<int>(b))
+                throw std::runtime_error("VBDSolver::solve_rigid_bodies()::body shape incompact");
+
+            // get data
+            const Vec3& cp0_local = contacts->rigid_contact_point0[contact_idx];
+            const Vec3& cp1_local = contacts->rigid_contact_point1[contact_idx];
+            const Vec3& contact_normal = contacts->rigid_contact_normal[contact_idx];
+
+            // transform to world space
+            Vec3 cp0_world = b0 >= 0 ? body0_rot * cp0_local + body0_pos : cp0_local;
+            Vec3 cp1_world = b1 >= 0 ? body1_rot * cp1_local + body1_pos : cp1_local;
+
+            // compute penetration
+            const float thickness = contacts->rigid_contact_thickness0[contact_idx] + contacts->rigid_contact_thickness1[contact_idx];
+            const float dist = contact_normal.dot(cp1_world - cp0_world);
+            const float penetration = thickness - dist;
+
+            if (penetration < 1e-5)
+                continue;
+
+            // get material parameters
+            const float contact_ke = body_body_contact_penalty_k_[contact_idx];
+            const float contact_kd = body_body_contact_material_kd_[contact_idx];
+            const float contact_mu = body_body_contact_material_mu_[contact_idx];
+
+            // evaluate force and hessian
+            const auto &res =
+                evaluate_rigid_contact_from_collision(b0, b1, body0_pos, body1_pos, body0_rot, body1_rot, cp0_local,
+                                                      cp1_local, contact_normal, penetration, contact_ke, contact_kd,
+                                                      contact_mu, 1e-4, dt);
+
+            if (static_cast<int>(b) == b0) {
+                body_force_[b] += res.force_0;
+                body_torque_[b] += res.torque_0;
+                body_hessian_ll_[b] += res.h_ll_0;
+                body_hessian_al_[b] += res.h_al_0;
+                body_hessian_aa_[b] += res.h_aa_0;
+            } else {
+                body_force_[b] += res.force_1;
+                body_torque_[b] += res.torque_1;
+                body_hessian_ll_[b] += res.h_ll_1;
+                body_hessian_al_[b] += res.h_al_1;
+                body_hessian_aa_[b] += res.h_aa_1;
+            }
+        }
+    }
+}
+
 
 void VBDSolver::forward_step(State& state_in, const float dt) {
     const size_t num_nodes = model_.num_particles;
@@ -1019,6 +1228,31 @@ void VBDSolver::BuildAdjacencyInfo() {
     }
 }
 
+void VBDSolver::compute_projected_isotropic_friction(float friction_mu, float normal_load, const Vec3 &n_unit,
+                                                     const Vec3 &slip_u, float eps_u, Vec3 &force_out, Mat3 &H_out) {
+
+    const float dot_nu = n_unit.dot(slip_u);
+    const Vec3 u_t = slip_u - n_unit * dot_nu;
+    const float u_t_norm = u_t.norm();
+
+    if (u_t_norm > 0.0f) {
+        // IPC-style regularization
+        float f1_SF_over_x;
+        if (u_t_norm > eps_u)
+            f1_SF_over_x = 1.0f / u_t_norm;
+        else
+            f1_SF_over_x = (-u_t_norm / eps_u + 2.0) / eps_u;
+
+        // Factor common scalar; force aligned with u_t, Hessian proportional to projector
+        float scale = friction_mu * normal_load * f1_SF_over_x;
+        force_out = -(scale * u_t);
+        H_out = scale * (Mat3::Identity() - n_unit * n_unit.transpose());
+    } else {
+        force_out = Vec3::Zero();
+        H_out = Mat3::Zero();
+    }
+}
+
 void VBDSolver::build_body_body_contact_lists(const Contacts *contacts) {
 
     std::ranges::fill(body_body_contact_counts_.begin(), body_body_contact_counts_.end(), 0);
@@ -1073,35 +1307,7 @@ void VBDSolver::warm_start_body_body_contact(const Contacts *contacts) {
         const float k_new = std::min(k_start_body_contact, avg_ke);
         body_body_contact_penalty_k_[i] = k_new;
     }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+};
 
 
 

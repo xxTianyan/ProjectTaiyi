@@ -627,9 +627,9 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     model_.shape_collision_radius.push_back(Vec3(hx, hy, hz).norm());
 
     // material parameters
-    model_.shape_material_ke.push_back(1e5);
-    model_.shape_material_kd.push_back(1e3);
-    model_.shape_material_mu.push_back(0.5f);
+    model_.shape_material_ke.push_back(default_shape_ke);
+    model_.shape_material_kd.push_back(default_shape_kd);
+    model_.shape_material_mu.push_back(default_friction_mu);
 
     // --- maintain body_shapes_indices/offsets ---
     // Append shape id into flattened list
@@ -730,9 +730,9 @@ size_t Builder::add_ground_plane() const {
     model_.shape_collision_radius.push_back(0.0f);
 
     // material parameter
-    model_.shape_material_ke.push_back(1e5);
-    model_.shape_material_kd.push_back(1e3);
-    model_.shape_material_mu.push_back(0.5f);
+    model_.shape_material_ke.push_back(default_shape_ke);
+    model_.shape_material_kd.push_back(default_shape_kd);
+    model_.shape_material_mu.push_back(default_friction_mu);
 
     model_.topology_version++;
 
