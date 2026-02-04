@@ -195,11 +195,7 @@ public:
     ScopeTimer timer_gradient() { return ScopeTimer(&current_frame_.time_gradient_update); }
     ScopeTimer test_timer() {return ScopeTimer(&current_frame_.time_random); }
 
-    // 通用接口，如果你想计时一些临时变量
-    static ScopeTimer timer_custom(TimerStat* target_ptr) { return ScopeTimer(target_ptr); }
-
     // --- Solver 内部检测函数 (支持多线程调用) ---
-
     // 检查顶点数据
     void inspect_vertex(const size_t v_id, const Vec3& force, const Mat3& hessian, const float dx, const float penetration, const float avg_len) {
         if (triggered_this_frame_.load()) return;

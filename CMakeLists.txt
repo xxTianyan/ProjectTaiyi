@@ -78,7 +78,9 @@ add_executable(Taiyi sample/main.cpp
         solver/VBD/VBDSolver.cpp
         raylib_plugin/RenderHelper.cpp
         collision/Collide.cpp
-        geometry/Geometry.cpp)
+        geometry/Geometry.cpp
+        solver/VBD/VBDParticle_Kernel.cpp
+        solver/VBD/VBDRigid_Kernel.cpp)
 
 target_include_directories(Taiyi
         PRIVATE

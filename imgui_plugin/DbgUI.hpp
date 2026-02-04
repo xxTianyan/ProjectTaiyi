@@ -281,7 +281,7 @@ private:
         auto TimeBar = [](const char* label, double ms, double total_ms, const ImVec4& color) {
             ImGui::Text("%s:", label);
             ImGui::SameLine(300); // 对齐数值
-            ImGui::Text("%.3f ms", ms);
+            ImGui::Text("%.7f ms", ms);
 
             if (total_ms > 0.0001) {
                 float fraction = static_cast<float>(ms / total_ms);
@@ -314,7 +314,7 @@ private:
         TimeBar("One Iteration", stats.time_single_iteration.avg_ms(), stats.time_total_physical_frame.avg_ms(), col_);
         TimeBar("Accumulate Gradient", stats.time_gradient_update.avg_ms(), stats.time_total_physical_frame.avg_ms(), col_);
         TimeBar("Linear Solve", stats.time_linear_solve.avg_ms(), stats.time_total_physical_frame.avg_ms(), col_);
-        // TimeBar("Custom Timer", stats.time_random.avg_ms(), stats.time_total_physical_frame.avg_ms(), col_);
+        TimeBar("Custom Timer", stats.time_random.avg_ms(), stats.time_total_physical_frame.avg_ms(), col_);
         // ImGui::Unindent();
     }
 
