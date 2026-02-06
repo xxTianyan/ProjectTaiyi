@@ -17,7 +17,7 @@ class RigidBox final : public Sample {
 public:
     RigidBox() {
         max_ticks_per_frame0_ = 2;
-        substeps0_ = 16;
+        substeps0_ = 12;
     };
 
     void Step(const float dt) override {
@@ -38,7 +38,7 @@ public:
         shape_ground_plane_ = builder.add_ground_plane();
 
         rigid_box_ = builder.add_rigidbody("box", Vec3{0.0f,7.0f,0.0f}, Quat{0.9238795325,0.3826834324,0,0});
-        auto box_shape = builder.add_shape_box(rigid_box_, 1.0f, 1.0f, 1.0f);
+        auto box_shape = builder.add_shape_box(rigid_box_, 0.5f, 0.25f, 0.35f);
 
         // add collide pair. temporary
         model.shape_contact_pairs.emplace_back(box_shape, shape_ground_plane_);
