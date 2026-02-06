@@ -376,7 +376,7 @@ void VBDSolver::solve_rigid_body(State &state_in, State &state_out, const Contac
 
         // Update position
         Vec3 com_new = com_current + x_inc;
-        Vec3 pos_new = com_new - q_current * body_com_local;
+        Vec3 pos_new = com_new - q_new * body_com_local;
 
         // copy back
         body_pos_out[b] = pos_new;
@@ -483,7 +483,7 @@ VBDSolver::RigidContactEvalResult VBDSolver::evaluate_rigid_contact_from_collisi
         X_wa.p = body0_pos;
         X_wa.q = body0_q;
         X_wa_prev.p = body_prev_pos_[body0];
-        X_wa.q = body_prev_rot_[body0];
+        X_wa_prev.q = body_prev_rot_[body0];
         body_a_com_local = model_.body_local_com[body0];
     }
 
@@ -498,7 +498,7 @@ VBDSolver::RigidContactEvalResult VBDSolver::evaluate_rigid_contact_from_collisi
         X_wb.p = body1_pos;
         X_wb.q = body1_q;
         X_wb_prev.p = body_prev_pos_[body1];
-        X_wb.q = body_prev_rot_[body1];
+        X_wb_prev.q = body_prev_rot_[body1];
         body_b_com_local = model_.body_local_com[body1];
     }
 

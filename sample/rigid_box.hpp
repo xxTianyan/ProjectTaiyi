@@ -37,7 +37,7 @@ public:
         Builder builder(model);
         shape_ground_plane_ = builder.add_ground_plane();
 
-        rigid_box_ = builder.add_rigidbody("box", Vec3{0.0f,1.0f,0.0f}, Quat::Identity());
+        rigid_box_ = builder.add_rigidbody("box", Vec3{0.0f,7.0f,0.0f}, Quat{0.9238795325,0.3826834324,0,0});
         auto box_shape = builder.add_shape_box(rigid_box_, 1.0f, 1.0f, 1.0f);
 
         // add collide pair. temporary
@@ -45,7 +45,7 @@ public:
 
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
-        solver_ = std::make_unique<VBDSolver>(scene_->model_, 2, soft_bunny(), dbg_.get());
+        solver_ = std::make_unique<VBDSolver>(scene_->model_, 10, soft_bunny(), dbg_.get());
     };
 
     void BindShaders(AppContext &ctx) override {
