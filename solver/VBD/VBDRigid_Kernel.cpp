@@ -5,6 +5,28 @@
 #include "Math.hpp"
 #include "VBDSolver.h"
 
+inline Vec3 compute_angular_velocity(const Quat& q_now, const Quat& q_prev, double dt) {
+    // 1. Normalize inputs
+    Quat q1 = q_now.normalized();
+    Quat q0 = q_prev.normalized();
+
+    // 2. Enforce shortest-arc
+
+    if (q1.dot(q0) < 0.0) {
+        q0.coeffs() = -q0.coeffs();
+    }
+
+    // 3. dq = q1 * conj(q0)
+    Quat dq = q1 * q0.conjugate();
+    dq.normalize();
+
+    // 4. Convert to Axis-Angle
+    Eigen::AngleAxisf aa(dq);
+
+    // 5. Return omega = axis * (angle / dt)
+    return aa.axis() * (aa.angle() / dt);
+}
+
 void VBDSolver::init_rigid_bodies(State &state_in, const Contacts* contacts, const float dt) {
 
     if (model_.num_bodies == 0) return;
@@ -88,9 +110,9 @@ void VBDSolver::forward_step_rigid_bodies(State &state_in, const float dt) {
 }
 
 void VBDSolver::integrate_rigid_body(const Vec3 &x0, const Quat &r0, const Vec3 &v0, const Vec3 &w0,
-                                           const Vec3 &f_ext, const Vec3 &t_ext, const Vec3 &com_local, float inv_mass,
+                                           const Vec3 &f_ext, const Vec3 &t_ext, const Vec3 &com_local, const float inv_mass,
                                            const Mat3 &I_body, const Mat3 &inv_I_body, const Vec3 &gravity,
-                                           float angular_damping, float dt, /*Outputs*/ Vec3 &x_out, Quat &r_out,
+                                           const float angular_damping, const float dt, /*Outputs*/ Vec3 &x_out, Quat &r_out,
                                            Vec3 &v_out, Vec3 &w_out) {
 
 
@@ -166,7 +188,7 @@ void VBDSolver::build_body_body_contact_lists(const Contacts *contacts) {
 
     std::ranges::fill(body_body_contact_counts_.begin(), body_body_contact_counts_.end(), 0);
 
-    if (contacts != nullptr)
+    if (contacts == nullptr)
         return;
 
     const size_t num_rigid_contacts = contacts->rigid_contact_count();
@@ -194,7 +216,7 @@ void VBDSolver::build_body_body_contact_lists(const Contacts *contacts) {
 
 void VBDSolver::warm_start_body_body_contact(const Contacts *contacts) {
 
-    if (contacts != nullptr)
+    if (contacts == nullptr)
         return;
 
     const size_t num_rigid_contacts = contacts->rigid_contact_count();
@@ -223,7 +245,12 @@ void VBDSolver::warm_start_body_body_contact(const Contacts *contacts) {
     }
 }
 
-void VBDSolver::solve_rigid_body(const State &state_in, State &state_out, const Contacts* contacts, const float dt) {
+void VBDSolver::solve_rigid_body(State &state_in, State &state_out, const Contacts* contacts, const float dt) {
+
+    auto& body_pos_in = state_in.body_pos;
+    auto& body_rot_in = state_in.body_rot;
+    auto& body_pos_out = state_out.body_pos;
+    auto& body_rot_out = state_out.body_rot;
 
     for (size_t b = 0; b < model_.num_bodies; b++) {
 
@@ -236,8 +263,132 @@ void VBDSolver::solve_rigid_body(const State &state_in, State &state_out, const 
             accumulate_rigid_body_force_hessian(b, c, state_in, contacts, dt);
         }
 
-        const Quat& q_current = state_in.body_rot[b];
+        // Inertial force and Hessian
+        const float dt_sqr_reciprocal = 1.0 / (dt * dt);
 
+        // read body properties
+        const Vec3& p_inertia = body_inertia_pos_[b];
+        const Quat& q_inertia = body_inertia_rot_[b];
+        const Vec3& body_com_local = model_.body_local_com[b];
+        const float inv_mass = model_.body_inv_mass[b];
+        const Mat3& I_body = model_.body_inertia[b];
+
+        const Vec3& p_current = body_pos_in[b];
+        const Quat& q_current = body_rot_in[b];
+
+        // compute com positions
+        Vec3 com_current = p_current + q_current * body_com_local;
+        Vec3 com_inertia = p_inertia + q_inertia * body_com_local;
+
+        // linear inertial force and hessian
+        float inertial_coeff = 1 / inv_mass * dt_sqr_reciprocal;
+        Vec3 f_lin = (com_inertia - com_current) * inertial_coeff;
+
+        // compute relative rotation via quaternion difference
+        // dq = q_current^-1 * q_star
+        Quat q_delta = q_current.inverse() * q_inertia;
+
+        // Enforce shortest path (w > 0) to avoid double-cover ambiguity
+        if (q_delta.z() < 0.0f)
+            q_delta.coeffs() = -q_delta.coeffs();
+
+        // rotation vector
+        Vec3 q_v = q_delta.vec();
+        const float v_norm = q_v.norm();
+        const float w = q_delta.w();
+
+        Vec3 theta_body;
+        if (v_norm < 1e-6) {
+            theta_body = 2.0 * q_v;
+        } else {
+            // angle = 2 * atan2(|v|, w)
+            const float angle = 2.0f * std::atan2(v_norm, w);
+            // theta_body = axis * angle = (v / |v|) * angle
+            theta_body = q_v * (angle / v_norm);
+        }
+
+        // angular inertial torque
+        Vec3 tau_body = I_body * (theta_body * dt_sqr_reciprocal);
+        Vec3 tau_world = q_current * tau_body;
+
+        // Angular Hessian in world frame: use full inertia (supports off-diagonal products of inertia)
+        Mat3 R_cur = q_current.toRotationMatrix();
+        Mat3 I_world = R_cur * I_body * R_cur.transpose();
+        Mat3 angular_hessian = I_world * dt_sqr_reciprocal;
+
+        // Accumulate external forces (rigid contacts)
+        // Read external contributions
+        const Vec3& ext_force = body_force_[b];
+        const Vec3& ext_torque = body_torque_[b];
+        const Mat3& ext_h_aa = body_hessian_aa_[b];
+        const Mat3& ext_h_al = body_hessian_al_[b];
+        const Mat3& ext_h_ll = body_hessian_ll_[b];
+
+        Vec3 f_torque = tau_world + ext_torque;
+        Vec3 f_force = f_lin + ext_force;
+
+        Mat3 h_aa = angular_hessian + ext_h_aa;
+        Mat3 h_al = ext_h_al;
+        Mat3 h_ll = ext_h_ll; h_ll.diagonal().array() += inertial_coeff;
+
+        // Accumulate joint forces (constraints)
+        // currently nothing
+        // ...
+
+        // Solve 6x6 block system via Schur complement
+        // Regularize angular Hessian (in-place)
+        const double trA = h_aa.trace() / 3.0;
+        const double epsA = 1.0e-9 * (trA + 1.0);
+        h_aa.diagonal().array() += static_cast<float>(epsA);
+
+        // Factorize linear Hessian
+        Eigen::LLT<Eigen::Matrix3f> llt(h_ll);
+        if (llt.info() != Eigen::Success) {
+            continue;
+        }
+
+        Mat3 MinvCt = llt.solve(h_al.transpose());
+        Vec3 MinvF = llt.solve(f_force);
+
+        /*Vec3 x0 = MinvCt.col(0);
+        Vec3 x1 = MinvCt.col(1);
+        Vec3 x2 = MinvCt.col(2);*/
+
+        // compute  and factorize Schur complement
+        Mat3 S = h_aa - (h_al * MinvCt);
+        Eigen::LLT<Eigen::Matrix3f> llt_S(S);
+
+        // Solve for angular increment
+        Vec3 rhs_w = f_torque - (h_al * MinvF);
+        Vec3 w_world = llt_S.solve(rhs_w);
+        Vec3 x_inc = MinvF - MinvCt * w_world;
+
+        // Update pose from increments
+        // Convert angular increment to quaternion
+        const float ang_mag = w_world.norm();
+        Quat dq_world;
+        if (ang_mag > 1e-6) {
+            dq_world = Eigen::AngleAxisf(ang_mag, w_world / ang_mag);
+        } else {
+            Vec3 half_w = w_world * 0.5;
+            dq_world = Quat(1.0, half_w.x(), half_w.y(), half_w.z());
+            dq_world.normalize();
+        }
+
+        Quat q_new = dq_world * q_current;
+        q_new.normalize();
+
+        // Update position
+        Vec3 com_new = com_current + x_inc;
+        Vec3 pos_new = com_new - q_current * body_com_local;
+
+        // copy back
+        body_pos_out[b] = pos_new;
+        body_rot_out[b] = q_new;
+
+        // for Parallel Gauss-Seidel
+        body_pos_in[b] = pos_new;
+        body_rot_in[b] = q_new;
     }
 }
 
@@ -269,8 +420,8 @@ void VBDSolver::accumulate_rigid_body_force_hessian(const size_t body_idx, const
     const Vec3& contact_normal = contacts->rigid_contact_normal[contact_idx];
 
     // transform to world space
-    Vec3 cp0_world = b0 >= 0 ? body0_rot * cp0_local + body0_pos : cp0_local;
-    Vec3 cp1_world = b1 >= 0 ? body1_rot * cp1_local + body1_pos : cp1_local;
+    const Vec3 cp0_world = b0 >= 0 ? body0_rot * cp0_local + body0_pos : cp0_local;
+    const Vec3 cp1_world = b1 >= 0 ? body1_rot * cp1_local + body1_pos : cp1_local;
 
     // compute penetration
     const float thickness = contacts->rigid_contact_thickness0[contact_idx] + contacts->rigid_contact_thickness1[contact_idx];
@@ -432,8 +583,8 @@ VBDSolver::RigidContactEvalResult VBDSolver::evaluate_rigid_contact_from_collisi
                   force_b, torque_b, h_ll_b, h_al_b, h_aa_b};
 }
 
-void VBDSolver::compute_projected_isotropic_friction(float friction_mu, float normal_load, const Vec3 &n_unit,
-                                                     const Vec3 &slip_u, float eps_u, Vec3 &force_out, Mat3 &H_out) {
+void VBDSolver::compute_projected_isotropic_friction(const float friction_mu, const float normal_load, const Vec3 &n_unit,
+                                                     const Vec3 &slip_u, const float eps_u, Vec3 &force_out, Mat3 &H_out) {
 
     const float dot_nu = n_unit.dot(slip_u);
     const Vec3 u_t = slip_u - n_unit * dot_nu;
@@ -454,5 +605,73 @@ void VBDSolver::compute_projected_isotropic_friction(float friction_mu, float no
     } else {
         force_out = Vec3::Zero();
         H_out = Mat3::Zero();
+    }
+}
+
+void VBDSolver::update_duals_body_body_contacts(const Contacts *contacts, State &state_out, std::vector<int> shape_body) {
+
+    for (int i = 0; i < contacts->rigid_contact_count(); i++) {
+        // read contact geometry
+        const int shape0 = contacts->rigid_contact_shape0[i];
+        const int shape1 = contacts->rigid_contact_shape1[i];
+        const int body0 = shape_body[shape0];
+        const int body1 = shape_body[shape1];
+
+        if (body0 < 0 && body1 < 0)
+            continue;
+
+        // read cached material stiffness
+        float stiffness = body_body_contact_material_ke_[i];
+
+        // transform contact points to world frame
+        Vec3 p0_world;
+        if (body0 >= 0)
+            p0_world = state_out.body_pos[body0] + state_out.body_rot[body0] * contacts->rigid_contact_point0[i];
+        else
+            p0_world = contacts->rigid_contact_point0[i];
+
+        Vec3 p1_world;
+        if (body1 >= 0)
+            p1_world = state_out.body_pos[body1] + state_out.body_rot[body1] * contacts->rigid_contact_point1[i];
+        else
+            p1_world = contacts->rigid_contact_point1[i];
+
+        // Compute penetration depth (constraint violation)
+        // Distance along the stored normal (normal points shape0 -> shape1)
+        // dist = dot(n, p0 - p1); positive implies separation along normal
+        Vec3 d = p1_world - p0_world;
+        const float dist = contacts->rigid_contact_normal[i].dot(d);
+        const float thickness = contacts->rigid_contact_thickness0[i] + contacts->rigid_contact_thickness1[i];
+        const float penetration = std::max(0.0f, thickness - dist);
+
+        // update penalty: k_new = min(k + beta * |C|, stiffness)
+        const float k = body_body_contact_penalty_k_[i];
+        const float k_new = std::min(k + 1e5f * penetration, stiffness);
+        body_body_contact_penalty_k_[i] = k_new;
+    }
+}
+
+void VBDSolver::update_rigid_body_vel(State &state_out, const std::vector<Vec3> &body_com_local, const float dt) const {
+    const auto num_bodies = model_.num_bodies;
+    for (size_t i = 0; i < num_bodies; i++) {
+
+        const Vec3& pos = state_out.body_pos[i];
+        const Vec3& pos_prev = body_prev_pos_[i];
+        const Quat& q = state_out.body_rot[i];
+        const Quat& q_prev = body_prev_rot_[i];
+
+        // Compute COM positions
+        const Vec3& com_local = body_com_local[i];
+        const Vec3 x_com = pos + q * com_local;
+        const Vec3 x_com_prev = pos_prev + q_prev * com_local;
+
+        // linear velocity
+        const Vec3 v = (x_com - x_com_prev) / dt;
+
+        // angular velocity
+        const Vec3 omega = compute_angular_velocity(q, q_prev, dt);
+
+        state_out.body_lin_vel[i] = v;
+        state_out.body_ang_vel[i] = omega;
     }
 }

@@ -5,15 +5,12 @@
 #ifndef TAIYI_RIGID_BOX_HPP
 #define TAIYI_RIGID_BOX_HPP
 
-
-
 #include "Sample.h"
 #include "Application.h"
 #include "Builder.h"
 #include "Scene.h"
 #include "ShaderManager.h"
 #include "VBDSolver.h"
-
 
 class RigidBox final : public Sample {
 

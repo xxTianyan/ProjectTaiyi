@@ -84,6 +84,7 @@ private:
 
 
     // ------- rigid body pipeline -------
+
     void init_rigid_bodies(State& state_in, const Contacts* contacts, float dt);
 
     void forward_step_rigid_bodies(State& state_in, float dt);
@@ -98,7 +99,7 @@ private:
 
     void warm_start_body_body_contact(const Contacts* contacts);
 
-    void solve_rigid_body(const State& state_in, State& state_out, const Contacts* contacts, float dt);
+    void solve_rigid_body(State& state_in, State& state_out, const Contacts* contacts, float dt);
 
     void accumulate_rigid_body_force_hessian(size_t body_idx, size_t cp_idx, const State& state_in, const Contacts* contacts, float dt);
 
@@ -110,8 +111,12 @@ private:
                                                                 float contact_ke, float contact_kd, float friction_mu,
                                                                 float friction_epsilon, float dt);
 
-    void compute_projected_isotropic_friction(float friction_mu, float normal_load, const Vec3 &n_unit,
-                                             const Vec3 &slip_u, float eps_u, Vec3 &force_out, Mat3 &H_out);
+    static void compute_projected_isotropic_friction(float friction_mu, float normal_load, const Vec3 &n_unit,
+                                                     const Vec3 &slip_u, float eps_u, Vec3 &force_out, Mat3 &H_out);
+
+    void update_duals_body_body_contacts(const Contacts* contacts, State& state_out, std::vector<int> shape_body);
+
+    void update_rigid_body_vel(State& state_out, const std::vector<Vec3> &body_com_local, float dt) const;
 
     // ------ SOA Data -------
 

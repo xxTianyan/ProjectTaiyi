@@ -61,21 +61,21 @@ void VBDSolver::Step(State& state_in, State& state_out, const Contacts* contacts
         return;
     }
 
-    {
-        ScopeTimer clear_timer = dbg_ ? dbg_->test_timer() : ScopeTimer(nullptr);
-        clear();
-        init_particles(state_in, dt);
+    clear();
 
-    }
+    init_rigid_bodies(state_in, contacts, dt);
+    init_particles(state_in, dt);
 
-    // init_rigid_bodies(state_in, contacts, dt);
 
     for (int iter = 0; iter < num_iters; ++iter) {
         ScopeTimer iter_timer = dbg_ ? dbg_->timer_iteration() : ScopeTimer(nullptr);
-        solve_particle(state_in, state_out, dt);
         // solve_rigid_body(state_in, state_out, contacts, dt);
+        solve_particle(state_in, state_out, dt);
     }
+
+    update_rigid_body_vel(state_in, model_.body_local_com, dt);
     update_particle_vel(state_out, dt);
+
 }
 
 void VBDSolver::set_self_collision(const float particle_contact_margin, const float particle_rest_shape_contact_exclusion_radius,

@@ -100,6 +100,10 @@ void VBDSolver::forward_step_with_penetration(State &state_in, const float dt) {
 
 void VBDSolver::solve_particle(State& state_in, State& state_out, const float dt) {
 
+    /*
+     * TODO: optimize this whole loop
+     */
+
     if (&state_in == &state_out) {
         throw std::runtime_error("VBDSolver::Step requires distinct state_in/state_out.");
     }
@@ -715,7 +719,6 @@ void VBDSolver::evaluate_vertex_triangle_contact(const VertexID v, const std::sp
 void VBDSolver::update_particle_vel(State& state_out, const float dt) {
 
     const auto num_nodes = model_.num_particles;
-    const auto num_bodies = model_.num_bodies;
 
     for (size_t i = 0; i < num_nodes; ++i) {
         state_out.particle_vel[i] = (state_out.particle_pos[i] - particle_prev_pos_[i]) / dt ;

@@ -67,10 +67,10 @@ protected:
     float fixed_dt0_ = 1.0 / 60.0f;
     float fixed_dt_  = fixed_dt0_;  // physical time step
 
-    int max_ticks_per_frame0_ = 8;
+    int max_ticks_per_frame0_ = 2;
     int max_ticks_per_frame_  = max_ticks_per_frame0_;
 
-    int substeps0_ = 2;
+    int substeps0_ = 8;
     int substeps_  = substeps0_;              // step in ticks
 
     // for simulation, remember to initialize
