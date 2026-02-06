@@ -101,7 +101,7 @@ private:
 
     void solve_rigid_body(State& state_in, State& state_out, const Contacts* contacts, float dt);
 
-    void accumulate_rigid_body_force_hessian(size_t body_idx, size_t cp_idx, const State& state_in, const Contacts* contacts, float dt);
+    void accumulate_rigid_body_force_hessian(size_t body_idx, const State& state_in, const Contacts* contacts, float dt);
 
     RigidContactEvalResult evaluate_rigid_contact_from_collision(int body0, int body1, const Vec3 &body0_pos, const Vec3 &body1_pos,
                                                                 const Quat &body0_q, const Quat &body1_q,
@@ -114,7 +114,7 @@ private:
     static void compute_projected_isotropic_friction(float friction_mu, float normal_load, const Vec3 &n_unit,
                                                      const Vec3 &slip_u, float eps_u, Vec3 &force_out, Mat3 &H_out);
 
-    void update_duals_body_body_contacts(const Contacts* contacts, State& state_out, std::vector<int> shape_body);
+    void update_duals_body_body_contacts(const Contacts* contacts, const State& state_out, const std::vector<int> &shape_body);
 
     void update_rigid_body_vel(State& state_out, const std::vector<Vec3> &body_com_local, float dt) const;
 

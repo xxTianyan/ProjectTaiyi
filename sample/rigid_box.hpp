@@ -20,12 +20,24 @@ public:
         substeps0_ = 16;
     };
 
+    void Step(const float dt) override {
+
+        if (scene_ == nullptr) return;
+        if (solver_ == nullptr) return;
+
+        // collide here
+        const Contacts* contacts = scene_->model_.collide(scene_->state_out());
+
+        solver_->Step(scene_->state_in(), scene_->state_out(), contacts, dt);
+        scene_->SwapStates();
+    };
+
     void CreateWorld([[maybe_unused]]AppContext &ctx) override {
         MModel model;
         Builder builder(model);
         shape_ground_plane_ = builder.add_ground_plane();
 
-        rigid_box_ = builder.add_rigidbody("box", Vec3{0.0f,5.0f,0.0f}, Quat::Identity());
+        rigid_box_ = builder.add_rigidbody("box", Vec3{0.0f,1.0f,0.0f}, Quat::Identity());
         auto box_shape = builder.add_shape_box(rigid_box_, 1.0f, 1.0f, 1.0f);
 
         // add collide pair. temporary

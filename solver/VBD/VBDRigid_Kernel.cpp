@@ -257,11 +257,7 @@ void VBDSolver::solve_rigid_body(State &state_in, State &state_out, const Contac
         if (model_.body_inv_mass[b] <= 0.0f)
             continue;
 
-        const size_t num_contacts = body_body_contact_counts_[b];
-
-        for (size_t c = 0; c < num_contacts; c++) {
-            accumulate_rigid_body_force_hessian(b, c, state_in, contacts, dt);
-        }
+        accumulate_rigid_body_force_hessian(b, state_in, contacts, dt);
 
         // Inertial force and Hessian
         const float dt_sqr_reciprocal = 1.0 / (dt * dt);
@@ -389,71 +385,76 @@ void VBDSolver::solve_rigid_body(State &state_in, State &state_out, const Contac
         // for Parallel Gauss-Seidel
         body_pos_in[b] = pos_new;
         body_rot_in[b] = q_new;
+
     }
+
+    update_duals_body_body_contacts(contacts, state_out, model_.shape_body);
 }
 
-void VBDSolver::accumulate_rigid_body_force_hessian(const size_t body_idx, const size_t cp_idx, const State &state_in, const Contacts *contacts, float dt) {
+void VBDSolver::accumulate_rigid_body_force_hessian(const size_t body_idx, const State &state_in, const Contacts *contacts, float dt) {
+    const size_t num_contacts = body_body_contact_counts_[body_idx];
+    for (size_t c = 0; c < num_contacts; ++c) {
+        const size_t contact_idx = body_body_contact_counts_indices_[body_idx * num_pre_alloc_contacts + c];
 
-    const size_t contact_idx = body_body_contact_counts_indices_[body_idx * num_pre_alloc_contacts + cp_idx];
+        // safety check
+        if (static_cast<int>(contact_idx) >= contacts->rigid_contact_count())
+            return;
 
-    // safety check
-    if (static_cast<int>(contact_idx) >= contacts->rigid_contact_count())
-        return;
+        // get shape and body
+        const int shape0 = contacts->rigid_contact_shape0[contact_idx];
+        const int shape1 = contacts->rigid_contact_shape1[contact_idx];
+        const int b0 = model_.shape_body[shape0];
+        const int b1 = model_.shape_body[shape1];
 
-    // get shape and body
-    const int shape0 = contacts->rigid_contact_shape0[contact_idx];
-    const int shape1 = contacts->rigid_contact_shape1[contact_idx];
-    const int b0 = model_.shape_body[shape0];
-    const int b1 = model_.shape_body[shape1];
+        const auto body0_pos = b0 >= 0 ? state_in.body_pos[b0] : Vec3::Zero();
+        const auto body1_pos = b1 >= 0 ? state_in.body_pos[b1] : Vec3::Zero();
+        const auto body0_rot = b0 >= 0 ? state_in.body_rot[b0] : Quat::Identity();
+        const auto body1_rot = b1 >= 0 ? state_in.body_rot[b1] : Quat::Identity();
 
-    const auto body0_pos = b0 >= 0 ? state_in.body_pos[b0] : Vec3::Zero();
-    const auto body1_pos = b1 >= 0 ? state_in.body_pos[b1] : Vec3::Zero();
-    const auto body0_rot = b0 >= 0 ? state_in.body_rot[b0] : Quat::Identity();
-    const auto body1_rot = b1 >= 0 ? state_in.body_rot[b1] : Quat::Identity();
+        if (b0 != static_cast<int>(body_idx) && b1 != static_cast<int>(body_idx))
+            throw std::runtime_error("VBDSolver::solve_rigid_bodies()::body shape incompact");
 
-    if (b0 != static_cast<int>(body_idx) && b1 != static_cast<int>(body_idx))
-        throw std::runtime_error("VBDSolver::solve_rigid_bodies()::body shape incompact");
+        // get data
+        const Vec3& cp0_local = contacts->rigid_contact_point0[contact_idx];
+        const Vec3& cp1_local = contacts->rigid_contact_point1[contact_idx];
+        const Vec3& contact_normal = contacts->rigid_contact_normal[contact_idx];
 
-    // get data
-    const Vec3& cp0_local = contacts->rigid_contact_point0[contact_idx];
-    const Vec3& cp1_local = contacts->rigid_contact_point1[contact_idx];
-    const Vec3& contact_normal = contacts->rigid_contact_normal[contact_idx];
+        // transform to world space
+        const Vec3 cp0_world = b0 >= 0 ? body0_rot * cp0_local + body0_pos : cp0_local;
+        const Vec3 cp1_world = b1 >= 0 ? body1_rot * cp1_local + body1_pos : cp1_local;
 
-    // transform to world space
-    const Vec3 cp0_world = b0 >= 0 ? body0_rot * cp0_local + body0_pos : cp0_local;
-    const Vec3 cp1_world = b1 >= 0 ? body1_rot * cp1_local + body1_pos : cp1_local;
+        // compute penetration
+        const float thickness = contacts->rigid_contact_thickness0[contact_idx] + contacts->rigid_contact_thickness1[contact_idx];
+        const float dist = contact_normal.dot(cp1_world - cp0_world);
+        const float penetration = thickness - dist;
 
-    // compute penetration
-    const float thickness = contacts->rigid_contact_thickness0[contact_idx] + contacts->rigid_contact_thickness1[contact_idx];
-    const float dist = contact_normal.dot(cp1_world - cp0_world);
-    const float penetration = thickness - dist;
+        if (penetration < 1e-5)
+            return;
 
-    if (penetration < 1e-5)
-        return;
+        // get material parameters
+        const float contact_ke = body_body_contact_penalty_k_[contact_idx];
+        const float contact_kd = body_body_contact_material_kd_[contact_idx];
+        const float contact_mu = body_body_contact_material_mu_[contact_idx];
 
-    // get material parameters
-    const float contact_ke = body_body_contact_penalty_k_[contact_idx];
-    const float contact_kd = body_body_contact_material_kd_[contact_idx];
-    const float contact_mu = body_body_contact_material_mu_[contact_idx];
+        // evaluate force and hessian
+        const auto &res =
+            evaluate_rigid_contact_from_collision(b0, b1, body0_pos, body1_pos, body0_rot, body1_rot, cp0_local, cp1_local,
+                                                  contact_normal, penetration, contact_ke, contact_kd, contact_mu, 1e-4,
+                                                  dt);
 
-    // evaluate force and hessian
-    const auto &res =
-        evaluate_rigid_contact_from_collision(b0, b1, body0_pos, body1_pos, body0_rot, body1_rot, cp0_local, cp1_local,
-                                              contact_normal, penetration, contact_ke, contact_kd, contact_mu, 1e-4,
-                                              dt);
-
-    if (static_cast<int>(body_idx) == b0) {
-        body_force_[body_idx] += res.force_0;
-        body_torque_[body_idx] += res.torque_0;
-        body_hessian_ll_[body_idx] += res.h_ll_0;
-        body_hessian_al_[body_idx] += res.h_al_0;
-        body_hessian_aa_[body_idx] += res.h_aa_0;
-    } else {
-        body_force_[body_idx] += res.force_1;
-        body_torque_[body_idx] += res.torque_1;
-        body_hessian_ll_[body_idx] += res.h_ll_1;
-        body_hessian_al_[body_idx] += res.h_al_1;
-        body_hessian_aa_[body_idx] += res.h_aa_1;
+        if (static_cast<int>(body_idx) == b0) {
+            body_force_[body_idx] += res.force_0;
+            body_torque_[body_idx] += res.torque_0;
+            body_hessian_ll_[body_idx] += res.h_ll_0;
+            body_hessian_al_[body_idx] += res.h_al_0;
+            body_hessian_aa_[body_idx] += res.h_aa_0;
+        } else {
+            body_force_[body_idx] += res.force_1;
+            body_torque_[body_idx] += res.torque_1;
+            body_hessian_ll_[body_idx] += res.h_ll_1;
+            body_hessian_al_[body_idx] += res.h_al_1;
+            body_hessian_aa_[body_idx] += res.h_aa_1;
+        }
     }
 }
 
@@ -608,7 +609,7 @@ void VBDSolver::compute_projected_isotropic_friction(const float friction_mu, co
     }
 }
 
-void VBDSolver::update_duals_body_body_contacts(const Contacts *contacts, State &state_out, std::vector<int> shape_body) {
+void VBDSolver::update_duals_body_body_contacts(const Contacts *contacts, const State &state_out, const std::vector<int> &shape_body) {
 
     for (int i = 0; i < contacts->rigid_contact_count(); i++) {
         // read contact geometry

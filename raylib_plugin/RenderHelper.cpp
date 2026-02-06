@@ -163,7 +163,7 @@ void RenderHelper::Rebuild() {
         if (vertex_begin + vertex_count > model_->body_render_vertices.size()) {
             throw std::runtime_error("RenderHelper::Rebuild: rigid render_vertices range out of pool");
         }
-        if (rb.info.render_tri.end() > model_->body_render_vertices.size()) {
+        if (rb.info.render_tri.end() > model_->render_tris.size()) {
             throw std::runtime_error("RenderHelper::Rebuild: rigid render_tris range out of pool");
         }
 
@@ -185,6 +185,14 @@ void RenderHelper::Rebuild() {
             mesh.vertices[i * 3 + 0] = p.x();
             mesh.vertices[i * 3 + 1] = p.y();
             mesh.vertices[i * 3 + 2] = p.z();
+        }
+
+        float miny = +1e30f, maxy = -1e30f;
+        for (size_t i = 0; i < vertex_count; ++i) {
+            float y = mesh.vertices[i*3 + 1];
+            miny = std::min(miny, y);
+            maxy = std::max(maxy, y);
+            printf("[Rigid %zu] local y-range = [%f, %f]\n", i, miny, maxy);
         }
 
         // indices are local (0..vertex_count - 1)

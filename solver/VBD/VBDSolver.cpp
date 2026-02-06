@@ -69,11 +69,11 @@ void VBDSolver::Step(State& state_in, State& state_out, const Contacts* contacts
 
     for (int iter = 0; iter < num_iters; ++iter) {
         ScopeTimer iter_timer = dbg_ ? dbg_->timer_iteration() : ScopeTimer(nullptr);
-        // solve_rigid_body(state_in, state_out, contacts, dt);
+        solve_rigid_body(state_in, state_out, contacts, dt);
         solve_particle(state_in, state_out, dt);
     }
 
-    update_rigid_body_vel(state_in, model_.body_local_com, dt);
+    update_rigid_body_vel(state_out, model_.body_local_com, dt);
     update_particle_vel(state_out, dt);
 
 }
