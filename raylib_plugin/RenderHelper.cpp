@@ -187,14 +187,6 @@ void RenderHelper::Rebuild() {
             mesh.vertices[i * 3 + 2] = p.z();
         }
 
-        float miny = +1e30f, maxy = -1e30f;
-        for (size_t i = 0; i < vertex_count; ++i) {
-            float y = mesh.vertices[i*3 + 1];
-            miny = std::min(miny, y);
-            maxy = std::max(maxy, y);
-            printf("[Rigid %zu] local y-range = [%f, %f]\n", i, miny, maxy);
-        }
-
         // indices are local (0..vertex_count - 1)
         BuildIndicesU16(*model_, rb.info.render_tri, vertex_begin, vertex_count, mesh.indices);
 
