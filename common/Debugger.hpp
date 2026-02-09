@@ -268,6 +268,17 @@ public:
         current_frame_.recorded = true;
     }
 
+    /*void record_force_hessian(const Vec3 &inertia_f, const Vec3 &inertia_torque, const Mat3 &inertia_linear_hessian,
+                              const Mat3 &inertia_angular_hessian, const Vec3 &contact_force,
+                              const Vec3 &contact_torque, const Mat3 &contact_h_ll, const Mat3 &contact_h_al,
+                              const Mat3 &contact_h_aa) {
+        current_frame_.component_forces[0] = std::make_pair("Inertia_Force", inertia_f);
+        current_frame_.component_forces[1] = std::make_pair("Inertia_Torque", inertia_torque);
+        current_frame_.component_forces[2] = std::make_pair("Contact_Force", contact_force);
+        current_frame_.component_forces[3] = std::make_pair("Contact_Torque", contact_torque);
+        // ...
+    }*/
+
     void record_collision(const VertexID id){ collision_particles_flag_[id] = 1;}
 
     // --- Dump 功能 ---

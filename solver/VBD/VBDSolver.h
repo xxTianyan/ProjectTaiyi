@@ -118,8 +118,6 @@ private:
 
     void update_rigid_body_vel(State& state_out, const std::vector<Vec3> &body_com_local, float dt) const;
 
-    // ------ SOA Data -------
-
     const MModel&  model_;
 
     int num_iters;
@@ -129,6 +127,8 @@ private:
     std::unique_ptr<TriMeshCollisionDetector> detector_;
 
     MMaterial material_;
+
+    // ------ SOA Data -------
 
     //  ---- particle ----
     std::vector<Vec3> particle_inertia_;

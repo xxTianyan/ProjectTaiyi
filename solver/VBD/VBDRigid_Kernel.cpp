@@ -281,11 +281,11 @@ void VBDSolver::solve_rigid_body(State &state_in, State &state_out, const Contac
         Vec3 f_lin = (com_inertia - com_current) * inertial_coeff;
 
         // compute relative rotation via quaternion difference
-        // dq = q_current^-1 * q_star
+        // dq = q_current^-1 * q_starw
         Quat q_delta = q_current.inverse() * q_inertia;
 
         // Enforce shortest path (w > 0) to avoid double-cover ambiguity
-        if (q_delta.z() < 0.0f)
+        if (q_delta.w() < 0.0f)
             q_delta.coeffs() = -q_delta.coeffs();
 
         // rotation vector
