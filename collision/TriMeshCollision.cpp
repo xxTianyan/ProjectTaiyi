@@ -106,7 +106,10 @@ AABB AABBTree::refit_recursive(const int node_id) {
     }
 }
 
-TriMeshCollisionDetector::TriMeshCollisionDetector(const MModel &model, const ForceElementAdjacencyInfo& adj, const int vertex_pre_alloc, const int vertex_max_alloc, const int edge_pre_alloc, const int edge_max_alloc, const int leaf_size)
+TriMeshCollisionDetector::TriMeshCollisionDetector(const MModel &model, const ForceElementAdjacencyInfo &adj,
+                                                   const int vertex_pre_alloc, const int vertex_max_alloc,
+                                                   const int edge_pre_alloc, const int edge_max_alloc,
+                                                   const int leaf_size)
     : model_(model), adj_(adj), v_pre_(vertex_pre_alloc), v_max_(vertex_max_alloc),
       e_pre_(edge_pre_alloc), e_max_(edge_max_alloc), leaf_size_(leaf_size) {
 

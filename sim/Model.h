@@ -122,6 +122,9 @@ struct MModel {
 
     size_t num_shapes = 0;
 
+    // ----------- joints ---------
+    size_t num_joints = 0;
+
     // ---- for rendering ----
     std::vector<render_trangle> render_tris;
 

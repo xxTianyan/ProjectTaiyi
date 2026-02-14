@@ -80,7 +80,8 @@ add_executable(Taiyi sample/main.cpp
         collision/Collide.cpp
         geometry/Geometry.cpp
         solver/VBD/VBDParticle_Kernel.cpp
-        solver/VBD/VBDRigid_Kernel.cpp)
+        solver/VBD/VBDRigid_Kernel.cpp
+        sim/Control.h)
 
 target_include_directories(Taiyi
         PRIVATE
