@@ -247,6 +247,9 @@ void VBDSolver::warm_start_body_body_contact(const Contacts *contacts) {
 
 void VBDSolver::solve_rigid_body(State &state_in, State &state_out, const Contacts* contacts, const float dt) {
 
+    if (model_.num_bodies == 0)
+        return;
+
     auto& body_pos_in = state_in.body_pos;
     auto& body_rot_in = state_in.body_rot;
     auto& body_pos_out = state_out.body_pos;

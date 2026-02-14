@@ -30,7 +30,7 @@ public:
                                         2.0f, 0.5f, NONE);
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
-        solver_ = std::make_unique<VBDSolver>(scene_->model_, 2, default_cloth(),dbg_.get());
+        solver_ = std::make_unique<VBDSolver>(scene_->model_, 2, hard_cloth(),dbg_.get());
         solver_->set_self_collision(0.16, 0.2, 0.1);
 
     };
