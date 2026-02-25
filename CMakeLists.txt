@@ -81,7 +81,8 @@ add_executable(Taiyi sample/main.cpp
         geometry/Geometry.cpp
         solver/VBD/VBDParticle_Kernel.cpp
         solver/VBD/VBDRigid_Kernel.cpp
-        sim/Control.h)
+        sim/Control.h
+        sample/basic_joints.hpp)
 
 target_include_directories(Taiyi
         PRIVATE
