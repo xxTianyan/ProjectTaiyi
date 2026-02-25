@@ -12,6 +12,7 @@
 #include "Collide.h"
 #include "Geometry.h"
 #include "Contacts.hpp"
+#include "Joints.h"
 
 struct range {
     size_t begin;
@@ -124,6 +125,34 @@ struct MModel {
 
     // ----------- joints ---------
     size_t num_joints = 0;
+    size_t num_joint_dof = 0;
+    size_t num_joint_coord = 0;
+    std::vector<float> joint_q;     // Generalized joint positions for state initialization
+    std::vector<float> joint_qd;    // Generalized joint velocities for state initialization
+    std::vector<float> joint_f;     // Generalized joint forces for state initialization
+    std::vector<JointType> joint_type;  // Joint type
+    std::vector<int> joint_parent;      // Joint parent body indices
+    std::vector<int> joint_child;       // Joint child body indices
+    std::vector<TTransform> joint_X_p;  // Joint transform in parent frame
+    std::vector<TTransform> joint_X_c;  // Joint mass frame in child frame
+    std::vector<int> joint_q_start;     // Start index of the first position coordinate per joint (last value is a sentinel for dimension queries)
+    std::vector<int> joint_qd_start;    // Start index of the first velocity coordinate per joint (last value is a sentinel for dimension queries)
+    std::vector<std::pair<int, int>> joint_dof_dim;     // Number of linear and angular dofs per joint
+
+    std::vector<float> joint_target_pos;    // Generalized joint position targets, shape [joint_dof_count]
+    std::vector<float> joint_target_vel;    // Generalized joint velocity targets
+    std::vector<Vec3> joint_axis;           // Joint axis in child frame, shape [joint_dof_count, 3]
+    std::vector<float> joint_target_ke;     // Joint stiffness
+    std::vector<float> joint_target_kd;     // Joint damping, shape [joint_dof_count], float
+    std::vector<float> joint_limit_ke;      // Joint position limit stiffness
+    std::vector<float> joint_limit_kd;      // Joint position limit damping
+    std::vector<float> joint_armature;      // Armature for each joint axis
+    std::vector<float> joint_effort_limit;  // Joint effort (force/torque) limits
+    std::vector<float> joint_velocity_limit;    // Joint velocity limits
+    std::vector<float> joint_friction;          // Joint friction coefficient
+    std::vector<float> joint_limit_lower;       // Joint lower position limits,
+    std::vector<float> joint_limit_upper;       // Joint upper position limits
+
 
     // ---- for rendering ----
     std::vector<render_trangle> render_tris;

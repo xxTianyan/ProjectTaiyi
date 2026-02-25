@@ -7,6 +7,7 @@
 #include <cmath>
 #include "AdjacencyCSR.hpp"
 #include "Model.h"
+#include "Joints.h"
 
 #ifdef _WIN64
 float M_PI = 3.14159265358979323846;
@@ -1113,6 +1114,91 @@ size_t Builder::add_ground_plane() const {
     model_.topology_version++;
 
     return shape_id;
+
+}
+
+size_t Builder::add_joint(const JointType joint_type, const int parent, const int child, const std::span<const JointDofConfig> linear_axes,
+    const std::span<const JointDofConfig> angular_axes, const TTransform &parent_xform, const TTransform &child_xform, std::string key,
+    bool collision_filter_parent, const bool enabled) const {
+
+    // ---- validate world ----
+    auto check_body = [&](int b, const char* who){
+        if (b < 0 || b >= model_.num_bodies)
+            throw std::runtime_error(std::string(who) + " body index out of range");
+    };
+
+    if (parent != -1) check_body(parent, "parent");
+    check_body(child, "child");
+
+    // ---- joint-level push ----
+    const int joint_index = static_cast<int>(model_.num_joints);
+    model_.joint_type.push_back(joint_type);
+    model_.joint_parent.push_back(parent);
+    model_.joint_child.push_back(child);
+    model_.joint_X_p.push_back(parent_xform);
+    model_.joint_X_c.push_back(child_xform);
+    // model_.joint_key.push_back(key.empty() ? ("joint_" + std::to_string(joint_index)) : key);
+    model_.joint_dof_dim.emplace_back(static_cast<int>(linear_axes.size()), static_cast<int>(angular_axes.size()));
+    // joint_enabled.push_back(enabled ? 1 : 0);
+
+    auto add_axis = [&](const JointDofConfig& d){
+        model_.joint_axis.push_back(d.axis);
+        model_.joint_target_pos.push_back(d.target_pos);
+        model_.joint_target_vel.push_back(d.target_vel);
+        model_.joint_target_ke.push_back(d.target_ke);
+        model_.joint_target_kd.push_back(d.target_kd);
+        model_.joint_limit_ke.push_back(d.limit_ke);
+        model_.joint_limit_kd.push_back(d.limit_kd);
+        model_.joint_armature.push_back(d.armature);
+        model_.joint_effort_limit.push_back(d.effort_limit);
+        model_.joint_velocity_limit.push_back(d.velocity_limit);
+        model_.joint_friction.push_back(d.friction);
+        model_.joint_limit_lower.push_back(std::isfinite(d.limit_lower) ? d.limit_lower : -MAXVAL);
+        model_.joint_limit_upper.push_back(std::isfinite(d.limit_upper) ? d.limit_upper :  MAXVAL);
+    };
+
+    for (auto& d : linear_axes)  add_axis(d);
+    for (auto& d : angular_axes) add_axis(d);
+
+    // ---- allocate q/qd/f and record offsets ----
+    const int axis_count = static_cast<int>(linear_axes.size()) + static_cast<int>(angular_axes.size());
+    auto [dof_count, coord_count] = get_joint_dof_coord_count(joint_type, axis_count);
+
+    model_.joint_q_start.push_back(model_.num_joint_coord);
+    model_.joint_qd_start.push_back(model_.num_joint_dof);
+
+    model_.joint_q.resize(model_.joint_q.size() + coord_count, 0.0f);
+    model_.joint_qd.resize(model_.joint_qd.size() + dof_count, 0.0f);
+
+    // ensure valid quaternion for types that store rotation as quat in q
+    if (joint_type == JointType::FREE || joint_type == JointType::BALL || joint_type == JointType::DISTANCE) {
+        if (coord_count > 0) model_.joint_q.back() = 1.0f;
+    }
+
+    model_.num_joint_coord += coord_count;
+    model_.num_joint_dof += dof_count;
+    model_.num_joints += 1;
+
+    return joint_index;
+}
+
+std::pair<int, int> Builder::get_joint_dof_coord_count(JointType joint_type, int num_axes) {
+
+    int dof_count   = num_axes;
+    int coord_count = num_axes;
+
+    if (joint_type == JointType::BALL) {
+        dof_count   = 3;
+        coord_count = 4;   // quaternion
+    } else if (joint_type == JointType::FREE || joint_type == JointType::DISTANCE) {
+        dof_count   = 6;   // 3 translation + 3 rotation
+        coord_count = 7;   // pos3 + quat4
+    } else if (joint_type == JointType::FIXED) {
+        dof_count   = 0;
+        coord_count = 0;
+    }
+
+    return {dof_count, coord_count};
 
 }
 

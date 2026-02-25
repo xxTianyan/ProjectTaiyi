@@ -5,6 +5,8 @@
 #ifndef TAIYI_BUILDER_H
 #define TAIYI_BUILDER_H
 
+#include <span>
+
 #include "Model.h"
 #include "raylib.h"
 #include "Types.h"
@@ -72,6 +74,14 @@ public:
                                           bool contribute_render_mesh = true) const;
 
     [[nodiscard]] size_t add_ground_plane() const;
+
+    // --------------- joints ---------------------
+    size_t add_joint(JointType joint_type, int parent, int child, std::span<const JointDofConfig> linear_axes = {},
+                     std::span<const JointDofConfig> angular_axes = {},
+                     const TTransform &parent_xform = TTransform::Identity(), const TTransform &child_tform = TTransform::Identity(),
+                     std::string key = {}, bool collision_filter_parent = true, bool enabled = true) const;
+
+    static std::pair<int, int> get_joint_dof_coord_count(JointType joint_type, int num_axes);
 
 private:
 
