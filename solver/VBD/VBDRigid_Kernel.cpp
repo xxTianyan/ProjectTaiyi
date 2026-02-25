@@ -614,6 +614,9 @@ void VBDSolver::compute_projected_isotropic_friction(const float friction_mu, co
 
 void VBDSolver::update_duals_body_body_contacts(const Contacts *contacts, const State &state_out, const std::vector<int> &shape_body) {
 
+    if (contacts == nullptr)
+        return;
+
     for (int i = 0; i < contacts->rigid_contact_count(); i++) {
         // read contact geometry
         const int shape0 = contacts->rigid_contact_shape0[i];
