@@ -1182,6 +1182,51 @@ size_t Builder::add_joint(const JointType joint_type, const int parent, const in
     return joint_index;
 }
 
+size_t Builder::add_joint_revolute(int parent, int child, std::optional<Vec3> axis, TTransform parent_xform,
+    TTransform child_xform, std::optional<float> target_pos, std::optional<float> target_vel,
+    std::optional<float> target_ke, std::optional<float> target_kd, std::optional<float> limit_lower,
+    std::optional<float> limit_upper, std::optional<float> limit_ke, std::optional<float> limit_kd,
+    std::optional<float> armature, std::optional<float> effort_limit, std::optional<float> velocity_limit,
+    std::optional<float> friction, std::string key, bool collision_filter_parent, bool enabled) {
+
+    JointDofConfig ax_cfg( Vec3::UnitX());
+    if (axis)
+        ax_cfg.axis = *axis;
+
+
+    if (limit_lower)   ax_cfg.limit_lower   = *limit_lower;
+    if (limit_upper)   ax_cfg.limit_upper   = *limit_upper;
+    if (limit_ke)      ax_cfg.limit_ke      = *limit_ke;
+    if (limit_kd)      ax_cfg.limit_kd      = *limit_kd;
+
+    if (target_pos)    ax_cfg.target_pos    = *target_pos;
+    if (target_vel)    ax_cfg.target_vel    = *target_vel;
+    if (target_ke)     ax_cfg.target_ke     = *target_ke;
+    if (target_kd)     ax_cfg.target_kd     = *target_kd;
+
+    if (armature)      ax_cfg.armature      = *armature;
+    if (effort_limit)  ax_cfg.effort_limit  = *effort_limit;
+    if (velocity_limit)ax_cfg.velocity_limit= *velocity_limit;
+    if (friction)      ax_cfg.friction      = *friction;
+
+    std::array<JointDofConfig, 1> angular_axes{ ax_cfg };
+
+    return add_joint(
+    JointType::REVOLUTE,
+    parent,
+    child,
+    /*linear_axes=*/{},
+    /*angular_axes=*/std::span<const JointDofConfig>(angular_axes),
+    parent_xform,
+    child_xform,
+    /*key=*/std::move(key),
+    collision_filter_parent,
+    enabled
+    );
+}
+
+
+
 std::pair<int, int> Builder::get_joint_dof_coord_count(JointType joint_type, int num_axes) {
 
     int dof_count   = num_axes;

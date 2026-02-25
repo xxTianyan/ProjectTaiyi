@@ -131,8 +131,10 @@ struct MModel {
     std::vector<float> joint_qd;    // Generalized joint velocities for state initialization
     std::vector<float> joint_f;     // Generalized joint forces for state initialization
     std::vector<JointType> joint_type;  // Joint type
+
     std::vector<int> joint_parent;      // Joint parent body indices
     std::vector<int> joint_child;       // Joint child body indices
+
     std::vector<TTransform> joint_X_p;  // Joint transform in parent frame
     std::vector<TTransform> joint_X_c;  // Joint mass frame in child frame
     std::vector<int> joint_q_start;     // Start index of the first position coordinate per joint (last value is a sentinel for dimension queries)

@@ -5,6 +5,7 @@
 #ifndef TAIYI_BUILDER_H
 #define TAIYI_BUILDER_H
 
+#include <optional>
 #include <span>
 
 #include "Model.h"
@@ -81,6 +82,27 @@ public:
                      const TTransform &parent_xform = TTransform::Identity(), const TTransform &child_tform = TTransform::Identity(),
                      std::string key = {}, bool collision_filter_parent = true, bool enabled = true) const;
 
+    size_t add_joint_revolute(int parent, int child, std::optional<Vec3> axis = std::nullopt,
+                              TTransform parent_xform = TTransform::Identity(),
+                              TTransform child_xform = TTransform::Identity(),
+                              std::optional<float> target_pos = std::nullopt,
+                              std::optional<float> target_vel = std::nullopt,
+                              std::optional<float> target_ke = std::nullopt,
+                              std::optional<float> target_kd = std::nullopt,
+                              std::optional<float> limit_lower = std::nullopt,
+                              std::optional<float> limit_upper = std::nullopt,
+                              std::optional<float> limit_ke = std::nullopt,
+                              std::optional<float> limit_kd = std::nullopt,
+                              std::optional<float> armature = std::nullopt,
+                              std::optional<float> effort_limit = std::nullopt,
+                              std::optional<float> velocity_limit = std::nullopt,
+                              std::optional<float> friction = std::nullopt, std::string key = {},
+                              bool collision_filter_parent = true, bool enabled = true);
+
+    /*
+     * TODO: complete add_articulation
+     */
+
     static std::pair<int, int> get_joint_dof_coord_count(JointType joint_type, int num_axes);
 
 private:
@@ -93,6 +115,7 @@ private:
     float default_shape_ke = 1e6f;
     float default_shape_kd = 20.0f;
     float default_friction_mu = 0.5;
+    // JointDofConfig default_dof_config = JointDofConfig(Vec3(1.0f,0.0f,0.0f));
 
 private:
 
