@@ -192,7 +192,7 @@ void CollisionPipeline::BroadPhaseRigidPairs_(const MModel &model, const State &
     }
 }
 
-void CollisionPipeline::NarrowPhaseRigidContacts_(const MModel &model, const State &state) {
+void CollisionPipeline::NarrowPhaseRigidContacts_(const MModel &model, const State &state) const {
     if (cached_contacts_ == nullptr) return;
 
     // narrow-phase produces "packed" contacts
@@ -228,7 +228,14 @@ void CollisionPipeline::NarrowPhaseRigidContacts_(const MModel &model, const Sta
 
         if (geo_a.geo_type == GeoType::PLANE && geo_b.geo_type == GeoType::BOX) {
             cm = box_plane_collision(geo_b, geo_a, point_id, 10);
-        } else
+        }
+        else if (geo_a.geo_type == GeoType::PLANE && geo_b.geo_type == GeoType::CAPSULE) {
+            cm = capsule_plane_collision(geo_b, geo_a, point_id, 10);
+        }
+        else if (geo_a.geo_type == GeoType::PLANE && geo_b.geo_type == GeoType::SPHERE) {
+            continue;
+        }
+        else
             continue;
 
         const float total_separation_needed = geo_a.radius_eff + geo_b.radius_eff + thickness_pair;
@@ -351,7 +358,7 @@ ContactManifold CollisionPipeline::box_plane_collision(const GeoData &box, const
 
     const Vec3 diff = p_a_world - p_b_world;
     const Vec3 normal = plane.X_ws.transformVector(Vec3::UnitY());
-    float distance = diff.dot(normal);
+    const float distance = diff.dot(normal);
 
     ContactManifold cm;
     // in narrow phase, shape0 is plane, shape1 is box. Thus, need to sawp.
@@ -360,6 +367,41 @@ ContactManifold CollisionPipeline::box_plane_collision(const GeoData &box, const
     cm.distance = distance;
     cm.normal = normal;
     return cm;
+}
+
+ContactManifold CollisionPipeline::capsule_plane_collision(const GeoData &capsule, const GeoData &plane, int point_id,
+    int edge_sdf_iter) {
+
+    const float plane_width  = plane.geo_scale[0];
+    const float plane_length = plane.geo_scale[2];
+
+    if (point_id < 2) {
+        const auto half_height_a = capsule.geo_scale[1];
+        const auto side = static_cast<float>(point_id) * 2.0f - 1.0f;
+        const Vec3 p_a_world = capsule.X_ws.transformPoint(Vec3(0.0f,side * half_height_a,0.0f));
+        const Vec3 query_b = plane.X_sw.transformPoint(p_a_world);
+
+        const Vec3 p_b_body = ClosestPointPlane_Local(plane_width, plane_length, query_b);
+        const Vec3 p_b_world = plane.X_ws.transformPoint(p_b_body);
+
+        const Vec3 diff = p_a_world - p_b_world;
+        Vec3 normal;
+        if (plane_length > 0.0f && plane_width > 0.0f)
+            normal = diff.normalized();
+        else
+            normal = plane.X_ws.transformVector(Vec3::UnitY());
+
+        const float distance = diff.dot(normal);
+
+        ContactManifold cm;
+        // in narrow phase, shape0 is plane, shape1 is box. Thus, need to sawp.
+        cm.p_a_world = p_b_world;
+        cm.p_b_world = p_a_world;
+        cm.distance = distance;
+        cm.normal = normal;
+        return cm;
+    }
+
 }
 
 

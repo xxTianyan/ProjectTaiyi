@@ -777,26 +777,6 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
         const float m_sph   = density * V_sph;
         const float m_hemi  = 0.5f * m_sph;
 
-        // --- inertia about capsule COM in shape frame ---
-        // COM is at origin by symmetry.
-        //
-        // Cylinder inertia about its own COM (axis = Y):
-        // Iyy = 1/2 m r^2
-        // Ixx = Izz = 1/12 m (3 r^2 + h^2)
-        //
-        // Two hemispheres: exact inertia is more annoying; for practical engines,
-        // a robust approximation is to treat them as two solid spheres of mass m_hemi,
-        // located at y = ±half_height, then apply parallel-axis shift.
-        //
-        // This slightly overestimates/underestimates compared to true hemisphere inertia,
-        // but is stable and consistent.
-        //
-        // Sphere inertia about its own center:
-        // I_sphere_center = 2/5 m r^2 * I3
-        //
-        // Parallel axis for translation d along Y:
-        // I_shift = m (||d||^2 I - d d^T) with d = (0, ±half_height, 0)
-        // => adds m * half_height^2 to Ixx and Izz, adds 0 to Iyy.
         Mat3 I_shape = Mat3::Zero();
 
         // cylinder
@@ -967,7 +947,7 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
 
         model_.topology_version++;
     }
-    
+
     return shape_id;
 }
 

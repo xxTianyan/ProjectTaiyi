@@ -432,7 +432,7 @@ void VBDSolver::accumulate_rigid_body_force_hessian(const size_t body_idx, const
         const float penetration = thickness - dist;
 
         if (penetration < 1e-5)
-            return;
+            continue;
 
         // get material parameters
         const float contact_ke = body_body_contact_penalty_k_[contact_idx];

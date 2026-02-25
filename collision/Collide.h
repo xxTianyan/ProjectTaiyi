@@ -71,12 +71,14 @@ private:
     // Pipeline stages
     void GenerateSoftContacts_(const MModel& model, const State& state);
     void BroadPhaseRigidPairs_(const MModel& model, const State& state);
-    void NarrowPhaseRigidContacts_(const MModel& model, const State& state);
+    void NarrowPhaseRigidContacts_(const MModel& model, const State& state) const;
 
     static int ShapeContactPointCount(GeoType type);
 
     // collision
     static ContactManifold box_plane_collision(const GeoData &box, const GeoData &plane, int point_id, int edge_sdf_iter);
+
+    static ContactManifold capsule_plane_collision(const GeoData &capsule, const GeoData &plane, int point_id, int edge_sdf_iter);
 
 private:
     bool AllocateContactPoints_(int num_contacts_a, int num_contacts_b, int shape_a, int shape_b);

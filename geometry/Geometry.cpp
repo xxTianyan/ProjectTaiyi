@@ -159,7 +159,8 @@ GeoData GeoData::CreateGeoData(const int shape_index, const MModel& model, const
     g.radius_eff = 0.0f;
 
     // future expand：only Sphere/Capsule/Cone needs radius_eff
-    // if (g.geo_type == GeoType::SPHERE || g.geo_type == GeoType::CAPSULE) g.radius_eff = g.geo_scale.x();
+    if (g.geo_type == GeoType::SPHERE || g.geo_type == GeoType::CAPSULE)
+        g.radius_eff = g.geo_scale.x();
 
     return g;
 }

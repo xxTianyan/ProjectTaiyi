@@ -81,7 +81,7 @@ private:
     float default_shape_thickness = 1e-5;
     float default_shape_density = 1000.0f;
     float default_shape_ke = 1e6f;
-    float default_shape_kd = 10.0f;
+    float default_shape_kd = 20.0f;
     float default_friction_mu = 0.5;
 
 private:
