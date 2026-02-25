@@ -80,6 +80,7 @@ private:
 
     static ContactManifold capsule_plane_collision(const GeoData &capsule, const GeoData &plane, int point_id, int edge_sdf_iter);
 
+    static ContactManifold sphere_plane_collision(const GeoData &sphere, const GeoData &plane, int point_id, int edge_sdf_iter);
 private:
     bool AllocateContactPoints_(int num_contacts_a, int num_contacts_b, int shape_a, int shape_b);
 

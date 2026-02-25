@@ -5,6 +5,7 @@
 #include "Collide.h"
 #include "Geometry.h"
 #include "Model.h"
+#include "TriMeshCollision.h"
 
 inline Vec3 ClosestPointPlane_Local(const float sx, const float sz, const Vec3& p_local) {
     float x, z;
@@ -233,7 +234,7 @@ void CollisionPipeline::NarrowPhaseRigidContacts_(const MModel &model, const Sta
             cm = capsule_plane_collision(geo_b, geo_a, point_id, 10);
         }
         else if (geo_a.geo_type == GeoType::PLANE && geo_b.geo_type == GeoType::SPHERE) {
-            continue;
+            cm = sphere_plane_collision(geo_b, geo_a, point_id, 10);
         }
         else
             continue;
@@ -401,7 +402,24 @@ ContactManifold CollisionPipeline::capsule_plane_collision(const GeoData &capsul
         cm.normal = normal;
         return cm;
     }
+}
 
+ContactManifold CollisionPipeline::sphere_plane_collision(const GeoData &sphere, const GeoData &plane, int point_id,
+    int edge_sdf_iter) {
+
+    const Vec3 p_a_world = sphere.X_ws.p;
+    const Vec3 p_b_body = ClosestPointPlane_Local(plane.geo_scale[0], plane.geo_scale[2], sphere.X_sw.transformPoint(p_a_world));
+    const Vec3 p_b_world = plane.X_ws.transformPoint(p_b_body);
+    const Vec3 diff = p_a_world - p_b_world;
+    const Vec3 normal = plane.X_ws.transformVector(Vec3::UnitY());
+    const auto distance = diff.dot(normal);
+
+    ContactManifold cm;
+    cm.p_a_world = p_b_world;
+    cm.p_b_world = p_a_world;
+    cm.distance = distance;
+    cm.normal = normal;
+    return cm;
 }
 
 

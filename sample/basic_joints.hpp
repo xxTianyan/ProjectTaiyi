@@ -35,15 +35,15 @@ public:
         Builder builder(model);
         shape_ground_plane_ = builder.add_ground_plane();
 
-        /*sphere_ = builder.add_rigidbody("sphere1", Vec3{0.0f,3.0f,0.0f}, Quat{1.0f,0.0f,0.0f,0.0f});
-        auto sphere_shape = builder.add_shape_sphere(sphere_, 0.2);*/
+        sphere_ = builder.add_rigidbody("sphere1", Vec3{0.0f,3.0f,0.0f}, Quat{1.0f,0.0f,0.0f,0.0f});
+        auto sphere_shape = builder.add_shape_sphere(sphere_, 0.2);
 
-        capsule_ = builder.add_rigidbody("capsule1", Vec3{0.0f,3.0f,0.0f}, Quat{0.9238795325,0.3826834324,0,0});
-        auto capsule_shape = builder.add_shape_capsule(capsule_, 0.2, 0.5);
+        /*capsule_ = builder.add_rigidbody("capsule1", Vec3{0.0f,3.0f,0.0f}, Quat{0.9238795325,0.3826834324,0,0});
+        auto capsule_shape = builder.add_shape_capsule(capsule_, 0.2, 0.5);*/
 
         // add collide pair. temporary
-        // model.shape_contact_pairs.emplace_back(sphere_shape, shape_ground_plane_);
-        model.shape_contact_pairs.emplace_back(capsule_shape, shape_ground_plane_);
+        model.shape_contact_pairs.emplace_back(sphere_shape, shape_ground_plane_);
+        // model.shape_contact_pairs.emplace_back(capsule_shape, shape_ground_plane_);
 
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
