@@ -50,13 +50,13 @@ public:
 
     void BindShaders(AppContext &ctx) override {
         ctx.shader_manager->LoadShaderProgram("rubber", "../resources/shaders/rubber.vs", "../resources/shaders/rubber.fs");
-        const auto bunny_shader = ctx.shader_manager->Get("rubber")->shader;
-        ShaderManager::BindMatrices(bunny_shader);
-        ShaderManager::SetCommonShaderParams(bunny_shader);
-        bunny_shader.locs[SHADER_LOC_MAP_DIFFUSE] = GetShaderLocation(bunny_shader, "texture0");
+        const auto rubber_shader = ctx.shader_manager->Get("rubber")->shader;
+        ShaderManager::BindMatrices(rubber_shader);
+        ShaderManager::SetCommonShaderParams(rubber_shader);
+        rubber_shader.locs[SHADER_LOC_MAP_DIFFUSE] = GetShaderLocation(rubber_shader, "texture0");
 
         auto box_model = renderHelper_.GetRLModel_r(rigid_box_);
-        box_model.materials[0].shader = bunny_shader;
+        box_model.materials[0].shader = rubber_shader;
         box_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
 
 

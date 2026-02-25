@@ -714,8 +714,265 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     return shape_id;
 }
 
+size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_height, const Vec3 &local_pos,
+    const Quat &local_rot, float density, float thickness, float margin, bool contribute_mass,
+    bool contribute_render_mesh) {
+
+    if (body_id < 0 || static_cast<size_t>(body_id) >= model_.num_bodies) {
+        throw std::runtime_error("addShapeBox(): invalid body_id");
+    }
+
+    if (density   < 0.0f) density   = default_shape_density;
+    if (thickness < 0.0f) thickness = default_shape_thickness;
+    if (margin    < 0.0f) margin    = default_shape_contact_margin;
+
+    const int shape_id = static_cast<int>(model_.shape_body.size());
+    model_.num_shapes++;
+
+    const Quat q = local_rot.normalized();
+
+    // --- push shape arrays ---
+    model_.shape_pos0.push_back(local_pos);
+    model_.shape_rot0.push_back(q);
+    model_.shape_body.push_back(body_id);
+    model_.shape_type.push_back(static_cast<int>(GeoType::CAPSULE));
+    model_.shape_scale.emplace_back(radius, half_height, 0.0f);
+    model_.shape_thickness.push_back(thickness);
+    model_.shape_contact_margin.push_back(margin);
+    // bounding radius around the origin (capsule axis along +Y/-Y in shape frame)
+    model_.shape_collision_radius.push_back(radius + half_height);
+
+    // material parameters
+    model_.shape_material_ke.push_back(default_shape_ke);
+    model_.shape_material_kd.push_back(default_shape_kd);
+    model_.shape_material_mu.push_back(default_friction_mu);
+
+    // --- maintain body_shapes_indices/offsets ---
+    model_.body_shapes_indices.push_back(shape_id);
+    for (size_t i = body_id + 1; i < model_.body_shapes_offsets.size(); ++i) {
+        model_.body_shapes_offsets[i] += 1;
+    }
+
+    auto& info = model_.body_infos[body_id];
+    info.shapes.count += 1;
+
+    // --- mass/inertia contribution (Newton-like) ---
+    // Shape frame convention:
+    // - capsule axis is Y
+    // - cylinder spans y in [-half_height, +half_height]
+    // - hemispheres centered at y = ±half_height
+    if (contribute_mass && density > 0.0f) {
+        constexpr float kPi = 3.14159265358979323846f;
+
+        const float r  = radius;
+        const float h  = 2.0f * half_height; // cylinder height
+
+        // masses
+        const float V_cyl = kPi * r * r * h;
+        const float V_sph = (4.0f / 3.0f) * kPi * r * r * r;
+        const float V_cap = V_cyl + V_sph;
+
+        const float m_total = density * V_cap;
+        const float m_cyl   = density * V_cyl;
+        const float m_sph   = density * V_sph;
+        const float m_hemi  = 0.5f * m_sph;
+
+        // --- inertia about capsule COM in shape frame ---
+        // COM is at origin by symmetry.
+        //
+        // Cylinder inertia about its own COM (axis = Y):
+        // Iyy = 1/2 m r^2
+        // Ixx = Izz = 1/12 m (3 r^2 + h^2)
+        //
+        // Two hemispheres: exact inertia is more annoying; for practical engines,
+        // a robust approximation is to treat them as two solid spheres of mass m_hemi,
+        // located at y = ±half_height, then apply parallel-axis shift.
+        //
+        // This slightly overestimates/underestimates compared to true hemisphere inertia,
+        // but is stable and consistent.
+        //
+        // Sphere inertia about its own center:
+        // I_sphere_center = 2/5 m r^2 * I3
+        //
+        // Parallel axis for translation d along Y:
+        // I_shift = m (||d||^2 I - d d^T) with d = (0, ±half_height, 0)
+        // => adds m * half_height^2 to Ixx and Izz, adds 0 to Iyy.
+        Mat3 I_shape = Mat3::Zero();
+
+        // cylinder
+        const float Iyy_cyl = 0.5f * m_cyl * r * r;
+        const float Ixx_cyl = (1.0f / 12.0f) * m_cyl * (3.0f * r * r + h * h);
+        const float Izz_cyl = Ixx_cyl;
+
+        // "two half-spheres as two spheres" approx
+        const float I_s_center = (2.0f / 5.0f) * m_hemi * r * r;
+        const float shift = m_hemi * half_height * half_height;
+
+        const float Ixx_caps = 2.0f * (I_s_center + shift);
+        const float Izz_caps = 2.0f * (I_s_center + shift);
+        const float Iyy_caps = 2.0f * (I_s_center); // no shift along axis
+
+        I_shape(0,0) = Ixx_cyl + Ixx_caps;
+        I_shape(1,1) = Iyy_cyl + Iyy_caps;
+        I_shape(2,2) = Izz_cyl + Izz_caps;
+
+        // rotate inertia into body frame
+        const Mat3 R = q.toRotationMatrix(); // shape -> body
+        const Mat3 I_body_about_shape_com = R * I_shape * R.transpose();
+
+        // shape COM in body frame
+        const Vec3& c_body = local_pos;
+
+        accumulate_mass_properties(body_id, m_total, c_body, I_body_about_shape_com);
+    }
+
+    // --- render mesh contribution ---
+    if (contribute_render_mesh) {
+        const int slices = 24;
+        const int hemiStacks = 8;   // pole -> equator stacks per hemi (excluding pole itself)
+        const int cylStacks  = 1;
+
+        const size_t v_begin = model_.body_render_vertices.size();
+        const size_t t_begin = model_.render_tris.size();
+
+        constexpr float kPi = 3.14159265358979323846f;
+
+        const int ringVerts = slices + 1;         // keep seam duplicate for simplicity
+        const size_t ringStride = (size_t)ringVerts;
+
+        auto to_body = [&](const Vec3& p_shape)->Vec3 {
+            return local_pos + q * p_shape;
+        };
+
+        auto push_ring = [&](float y, float rad) {
+            for (int j = 0; j <= slices; ++j) {
+                const float u = float(j) / float(slices);
+                const float theta = u * (2.0f * kPi);
+                const float st = std::sin(theta);
+                const float ct = std::cos(theta);
+                model_.body_render_vertices.push_back(to_body(Vec3(rad * ct, y, rad * st)));
+            }
+        };
+
+        auto add_quads = [&](size_t ring0_begin, size_t ring1_begin) {
+            // CCW front-face
+            for (int j = 0; j < slices; ++j) {
+                const uint32_t a = (uint32_t)(ring0_begin + (size_t)j);
+                const uint32_t b = (uint32_t)(ring1_begin + (size_t)j);
+                const uint32_t c = (uint32_t)(ring1_begin + (size_t)(j + 1));
+                const uint32_t d = (uint32_t)(ring0_begin + (size_t)(j + 1));
+                model_.render_tris.emplace_back(a, b, c);
+                model_.render_tris.emplace_back(a, c, d);
+            }
+        };
+
+        auto add_fan = [&](uint32_t pole, size_t ring_begin, bool is_top) {
+            // pole + ring -> slices triangles
+            // CCW: for top pole, triangles (pole, j, j+1) usually works;
+            // for bottom pole, flip (pole, j+1, j)
+            for (int j = 0; j < slices; ++j) {
+                const uint32_t v0 = (uint32_t)(ring_begin + (size_t)j);
+                const uint32_t v1 = (uint32_t)(ring_begin + (size_t)(j + 1));
+                if (is_top) {
+                    model_.render_tris.emplace_back(pole, v0, v1);
+                } else {
+                    model_.render_tris.emplace_back(pole, v1, v0);
+                }
+            }
+        };
+
+        // ===== 1) Top pole (single vertex) =====
+        const float y_top_pole = +half_height + radius;
+        const uint32_t topPole = (uint32_t)model_.body_render_vertices.size();
+        model_.body_render_vertices.push_back(to_body(Vec3(0.0f, y_top_pole, 0.0f)));
+
+        // ===== 2) Top hemisphere rings (exclude pole, include equator) =====
+        // alpha from (1/hemiStacks)..(pi/2)
+        const size_t topHemiBase = model_.body_render_vertices.size();
+        for (int i = 1; i <= hemiStacks; ++i) {
+            const float t = float(i) / float(hemiStacks);
+            const float alpha = t * (0.5f * kPi); // (0, pi/2]
+            const float y = +half_height + radius * std::cos(alpha);
+            const float rad = radius * std::sin(alpha);
+            push_ring(y, rad);
+        }
+        const size_t topEquatorRing = topHemiBase + (size_t)(hemiStacks - 1) * ringStride;
+
+        // Fan connect top pole -> first ring
+        add_fan(topPole, topHemiBase, /*is_top=*/true);
+
+        // Connect top hemi rings with quads
+        for (int i = 0; i < hemiStacks - 1; ++i) {
+            const size_t r0 = topHemiBase + (size_t)i * ringStride;
+            const size_t r1 = topHemiBase + (size_t)(i + 1) * ringStride;
+            add_quads(r0, r1);
+        }
+
+        // ===== 3) Cylinder rings (exclude top equator, include bottom equator) =====
+        const size_t cylBase = model_.body_render_vertices.size();
+        for (int i = 1; i <= cylStacks; ++i) {
+            const float t = float(i) / float(cylStacks);
+            const float y = (+half_height) + t * (-2.0f * half_height); // down to -half_height
+            push_ring(y, radius);
+        }
+        const size_t bottomEquatorRing = cylBase + (size_t)(cylStacks - 1) * ringStride;
+
+        // Connect top equator -> first cylinder ring (if any)
+        if (cylStacks > 0) {
+            add_quads(topEquatorRing, cylBase);
+            for (int i = 0; i < cylStacks - 1; ++i) {
+                const size_t r0 = cylBase + (size_t)i * ringStride;
+                const size_t r1 = cylBase + (size_t)(i + 1) * ringStride;
+                add_quads(r0, r1);
+            }
+        }
+
+        // ===== 4) Bottom hemisphere rings (exclude equator, exclude pole) =====
+        const size_t botHemiBase = model_.body_render_vertices.size();
+        for (int i = 1; i < hemiStacks; ++i) {
+            const float t = float(i) / float(hemiStacks);
+            const float beta = t * (0.5f * kPi); // (0, pi/2)
+            const float y = -half_height - radius * std::sin(beta);
+            const float rad = radius * std::cos(beta);
+            push_ring(y, rad);
+        }
+
+        if (hemiStacks > 1) {
+            // Connect bottom equator -> first bottom-hemi ring
+            add_quads(bottomEquatorRing, botHemiBase);
+
+            // Connect bottom hemi rings downwards
+            for (int i = 0; i < hemiStacks - 2; ++i) {
+                const size_t r0 = botHemiBase + (size_t)i * ringStride;
+                const size_t r1 = botHemiBase + (size_t)(i + 1) * ringStride;
+                add_quads(r0, r1);
+            }
+        }
+
+        // ===== 5) Bottom pole (single vertex) + fan =====
+        const float y_bot_pole = -half_height - radius;
+        const uint32_t botPole = (uint32_t)model_.body_render_vertices.size();
+        model_.body_render_vertices.push_back(to_body(Vec3(0.0f, y_bot_pole, 0.0f)));
+
+        // Fan connect last bottom ring -> bottom pole
+        const size_t lastBotRing = (hemiStacks > 1) ?
+            (botHemiBase + (size_t)(hemiStacks - 2) * ringStride) :
+            bottomEquatorRing;
+
+        add_fan(botPole, lastBotRing, /*is_top=*/false);
+
+        // update ranges
+        info.vertex.count += static_cast<uint32_t>(model_.body_render_vertices.size() - v_begin);
+        info.render_tri.count += static_cast<uint32_t>(model_.render_tris.size() - t_begin);
+
+        model_.topology_version++;
+    }
+    
+    return shape_id;
+}
+
 size_t Builder::add_shape_sphere(const size_t body_id, float radius, const Vec3 &local_pos, const Quat &local_rot, float density,
-    float thickness, float margin, const bool contribute_mass, const bool contribute_render_mesh) const {
+                                 float thickness, float margin, const bool contribute_mass, const bool contribute_render_mesh) const {
 
     if (body_id < 0 || static_cast<size_t>(body_id) >= model_.num_bodies) {
         throw std::runtime_error("addShapeSphere(): invalid body_id");

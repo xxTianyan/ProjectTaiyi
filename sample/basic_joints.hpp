@@ -14,6 +14,17 @@ class BasicJoints final : public Sample {
 
 public:
 
+    void Step(float dt) override {
+        if (scene_ == nullptr) return;
+        if (solver_ == nullptr) return;
+
+        // collide here
+        const Contacts* contacts = scene_->model_.collide(scene_->state_out());
+
+        solver_->Step(scene_->state_in(), scene_->state_out(), contacts, dt);
+        scene_->SwapStates();
+    };
+
     void CreateWorld([[maybe_unused]]AppContext& ctx) override {
         MModel model;
         Builder builder(model);
@@ -22,14 +33,19 @@ public:
         sphere_ = builder.add_rigidbody("sphere1", Vec3{0.0f,3.0f,0.0f}, Quat{1.0f,0.0f,0.0f,0.0f});
         auto sphere_shape = builder.add_shape_sphere(sphere_, 0.2);
 
+        capsule_ = builder.add_rigidbody("capsule1", Vec3{2.0f,3.0f,0.0f}, Quat{1.0f,0.0f,0.0f,0.0f});
+        auto capsule_shape = builder.add_shape_capsule(capsule_, 0.2, 0.5);
+
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
         solver_ = std::make_unique<VBDSolver>(scene_->model_, 10, soft_bunny(), dbg_.get());
-
     }
+
+
 
 private:
     size_t sphere_{};
+    size_t capsule_{};
     size_t shape_ground_plane_{};
 };
 
