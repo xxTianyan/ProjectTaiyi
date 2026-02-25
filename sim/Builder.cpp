@@ -680,7 +680,7 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
         };
 
         auto add_quad = [&](const Vec3& s0, const Vec3& s1, const Vec3& s2, const Vec3& s3) {
-            uint32_t idx = static_cast<uint32_t>(model_.body_render_vertices.size());
+            auto idx = static_cast<uint32_t>(model_.body_render_vertices.size());
 
             const Vec3 p0 = to_body(s0);
             const Vec3 p1 = to_body(s1);
@@ -688,8 +688,8 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
             const Vec3 p3 = to_body(s3);
 
             model_.body_render_vertices.insert(model_.body_render_vertices.end(), {p0, p1, p2, p3});
-            model_.render_tris.push_back({idx, idx + 1, idx + 2});
-            model_.render_tris.push_back({idx, idx + 2, idx + 3});
+            model_.render_tris.emplace_back(idx, idx + 1, idx + 2);
+            model_.render_tris.emplace_back(idx, idx + 2, idx + 3);
         };
 
         add_quad({-hx, -hy, hz}, { hx, -hy, hz}, { hx,  hy, hz}, {-hx,  hy, hz});
@@ -707,6 +707,145 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
         // update ranges
         info.vertex.count += 24;
         info.render_tri.count += 12;
+
+        model_.topology_version++;
+    }
+
+    return shape_id;
+}
+
+size_t Builder::add_shape_sphere(const size_t body_id, float radius, const Vec3 &local_pos, const Quat &local_rot, float density,
+    float thickness, float margin, const bool contribute_mass, const bool contribute_render_mesh) const {
+
+    if (body_id < 0 || static_cast<size_t>(body_id) >= model_.num_bodies) {
+        throw std::runtime_error("addShapeSphere(): invalid body_id");
+    }
+
+    if (radius <= 0.0f) {
+        throw std::runtime_error("addShapeSphere(): radius must be > 0");
+    }
+
+    if (density   < 0.0f) density   = default_shape_density;
+    if (thickness < 0.0f) thickness = default_shape_thickness;
+    if (margin    < 0.0f) margin    = default_shape_contact_margin;
+
+    const int shape_id = static_cast<int>(model_.shape_body.size());
+    model_.num_shapes++;
+
+    const Quat q = local_rot.normalized();
+
+    // --- push shape arrays ---
+    model_.shape_pos0.push_back(local_pos);
+    model_.shape_rot0.push_back(q);
+    model_.shape_body.push_back(body_id);
+    model_.shape_type.push_back(static_cast<int>(GeoType::SPHERE));
+    // sphere only needs one parameter; keep others as radius for convenience
+    model_.shape_scale.emplace_back(radius, 0.0f,0.0f);
+    model_.shape_thickness.push_back(thickness);
+    model_.shape_contact_margin.push_back(margin);
+    model_.shape_collision_radius.push_back(radius); // simplest: bounding radius = r
+
+    // material parameters
+    model_.shape_material_ke.push_back(default_shape_ke);
+    model_.shape_material_kd.push_back(default_shape_kd);
+    model_.shape_material_mu.push_back(default_friction_mu);
+
+    // --- maintain body_shapes_indices/offsets ---
+    // Append shape id into flattened list
+    model_.body_shapes_indices.push_back(shape_id);
+    for (size_t i = body_id + 1; i < model_.body_shapes_offsets.size(); ++i) {
+        model_.body_shapes_offsets[i] += 1;
+    }
+
+    auto& info = model_.body_infos[body_id];
+    info.shapes.count += 1;
+
+    // --- mass/inertia contribution (Newton-like) ---
+    if (contribute_mass && density > 0.0f) {
+        // volume = (4/3) pi r^3
+        constexpr float kPi = 3.14159265358979323846f;
+        const float volume = (4.0f / 3.0f) * kPi * radius * radius * radius;
+        const float m = density * volume;
+
+        // inertia of solid sphere about its center (shape frame):
+        // I = 2/5 m r^2 * I3
+        const float I0 = (2.0f / 5.0f) * m * radius * radius;
+        Mat3 I_shape = Mat3::Zero();
+        I_shape(0,0) = I0;
+        I_shape(1,1) = I0;
+        I_shape(2,2) = I0;
+
+        // rotate inertia into body frame (for sphere this is actually invariant,
+        const Mat3 R = q.toRotationMatrix(); // shape -> body
+        const Mat3 I_body_about_shape_com = R * I_shape * R.transpose();
+
+        // shape COM in body frame
+        const Vec3& c_body = local_pos;
+
+        accumulate_mass_properties(body_id, m, c_body, I_body_about_shape_com);
+    }
+
+    // --- render mesh contribution ---
+    // Here we generate a UV-sphere (lat-long) with configurable resolution.
+    if (contribute_render_mesh) {
+        constexpr int stacks = 24;  // latitude divisions
+        constexpr int slices = 24;  // longitude divisions
+
+        const size_t v_begin = model_.body_render_vertices.size();
+        const size_t t_begin = model_.render_tris.size();
+
+        model_.body_render_vertices.reserve(v_begin + static_cast<size_t>((stacks + 1) * (slices + 1)));
+        model_.render_tris.reserve(t_begin + static_cast<size_t>(stacks * slices * 2));
+
+        auto to_body = [&](const Vec3& p_shape)->Vec3 {
+            return local_pos + q * p_shape; // shape -> body
+        };
+
+        // Build vertices (include seam column: slices+1)
+        // Use your math types; assuming Vec3 has (x,y,z) ctor and you have sin/cos.
+        for (int i = 0; i <= stacks; ++i) {
+            constexpr float kPi = 3.14159265358979323846f;
+            const float v = static_cast<float>(i) / static_cast<float>(stacks);      // [0,1]
+            const float phi = v * kPi;                     // [0, pi]
+            const float sp = std::sin(phi);
+            const float cp = std::cos(phi);
+
+            for (int j = 0; j <= slices; ++j) {
+                const float u = static_cast<float>(j) / static_cast<float>(slices);  // [0,1]
+                const float theta = u * (2.0f * kPi);      // [0, 2pi]
+                const float st = std::sin(theta);
+                const float ct = std::cos(theta);
+
+                // sphere centered at origin in shape frame
+                const Vec3 p_shape(radius * sp * ct,
+                                   radius * cp,
+                                   radius * sp * st);
+
+                model_.body_render_vertices.push_back(to_body(p_shape));
+            }
+        }
+
+        // Build triangles (two per quad)
+        auto vid = [&](const int i, const int j) -> uint32_t {
+            return static_cast<uint32_t>(v_begin + static_cast<size_t>(i) * (slices + 1) + static_cast<size_t>(j));
+        };
+
+        for (int i = 0; i < stacks; ++i) {
+            for (int j = 0; j < slices; ++j) {
+                const uint32_t a = vid(i,     j);
+                const uint32_t b = vid(i + 1, j);
+                const uint32_t c = vid(i + 1, j + 1);
+                const uint32_t d = vid(i,     j + 1);
+
+                // Winding: keep consistent with your renderer (may need swap)
+                model_.render_tris.emplace_back(a, b, c);
+                model_.render_tris.emplace_back(a, c, d);
+            }
+        }
+
+        // update ranges
+        info.vertex.count += static_cast<uint32_t>((stacks + 1) * (slices + 1));
+        info.render_tri.count += static_cast<uint32_t>(stacks * slices * 2);
 
         model_.topology_version++;
     }
