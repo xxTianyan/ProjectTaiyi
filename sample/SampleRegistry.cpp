@@ -10,6 +10,7 @@
 #include "falling_cloth.hpp"
 #include "rigid_box.hpp"
 #include "rubber_ball.hpp"
+#include "basic_joints.hpp"
 
 void RegisterAllSamples(SampleRegistry& reg) {
 
@@ -31,4 +32,8 @@ void RegisterAllSamples(SampleRegistry& reg) {
 
     reg.Register(SampleId::RIGID_BOX, "Rigid Box",
         []()->SamplePtr {return std::make_unique<RigidBox>();});
+
+    reg.Register(SampleId::BASIC_JOINTS, "Basic Joints",
+        []()->SamplePtr {return std::make_unique<BasicJoints>();});
+
 }

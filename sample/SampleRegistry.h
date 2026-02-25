@@ -20,6 +20,7 @@ enum SampleId : int {
     RUBBER_BALL,
     FALLING_CLOTH,
     RIGID_BOX,
+    BASIC_JOINTS,
 };
 
 struct SampleInfo {
