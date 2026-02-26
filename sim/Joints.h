@@ -86,7 +86,23 @@ struct JointDofConfig {
         axis.normalize();
     }
 
+    static JointDofConfig create_unlimited(const Vec3 &axis_vec) {
+        JointDofConfig c(axis_vec);
+        c.axis.normalize();
+        c.limit_lower = -MAXVAL;
+        c.limit_upper =  MAXVAL;
+        c.target_pos  = 0.0f;
+        c.target_vel  = 0.0f;
+        c.target_ke   = 0.0f;
+        c.target_kd   = 0.0f;
+        c.armature    = 0.0f;
+        c.limit_ke    = 0.0f;
+        c.limit_kd    = 0.0f;
+        return c;
+    }
+
 private:
+
     void fix_target_pos_if_outside_limits() {
         if (target_pos > limit_upper || target_pos < limit_lower) {
             target_pos = 0.5f * (limit_lower + limit_upper);

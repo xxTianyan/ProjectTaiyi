@@ -131,9 +131,11 @@ struct MModel {
     std::vector<float> joint_qd;    // Generalized joint velocities for state initialization
     std::vector<float> joint_f;     // Generalized joint forces for state initialization
     std::vector<JointType> joint_type;  // Joint type
+    std::vector<std::string> joint_key; // Joint keys
 
     std::vector<int> joint_parent;      // Joint parent body indices
     std::vector<int> joint_child;       // Joint child body indices
+    std::vector<int> joint_articulation;   // Joint articulation index (-1 if not in any articulation)
 
     std::vector<TTransform> joint_X_p;  // Joint transform in parent frame
     std::vector<TTransform> joint_X_c;  // Joint mass frame in child frame
@@ -154,6 +156,11 @@ struct MModel {
     std::vector<float> joint_friction;          // Joint friction coefficient
     std::vector<float> joint_limit_lower;       // Joint lower position limits,
     std::vector<float> joint_limit_upper;       // Joint upper position limits
+
+    // ------ articulation ------
+    size_t num_articulation = 0;
+    std::vector<int> articulation_start;        // Articulation start index
+    std::vector<std::string> articulation_key;          // Articulation keys
 
 
     // ---- for rendering ----

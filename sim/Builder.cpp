@@ -1117,13 +1117,13 @@ size_t Builder::add_ground_plane() const {
 
 }
 
-size_t Builder::add_joint(const JointType joint_type, const int parent, const int child, const std::span<const JointDofConfig> linear_axes,
+int Builder::add_joint(const JointType joint_type, const int parent, const int child, const std::span<const JointDofConfig> linear_axes,
     const std::span<const JointDofConfig> angular_axes, const TTransform &parent_xform, const TTransform &child_xform, std::string key,
     bool collision_filter_parent, const bool enabled) const {
 
     // ---- validate world ----
     auto check_body = [&](int b, const char* who){
-        if (b < 0 || b >= model_.num_bodies)
+        if (b < 0 || b >= static_cast<int>(model_.num_bodies))
             throw std::runtime_error(std::string(who) + " body index out of range");
     };
 
@@ -1137,8 +1137,9 @@ size_t Builder::add_joint(const JointType joint_type, const int parent, const in
     model_.joint_child.push_back(child);
     model_.joint_X_p.push_back(parent_xform);
     model_.joint_X_c.push_back(child_xform);
-    // model_.joint_key.push_back(key.empty() ? ("joint_" + std::to_string(joint_index)) : key);
+    model_.joint_key.push_back(key.empty() ? ("joint_" + std::to_string(joint_index)) : key);
     model_.joint_dof_dim.emplace_back(static_cast<int>(linear_axes.size()), static_cast<int>(angular_axes.size()));
+    model_.joint_articulation.push_back(-1);
     // joint_enabled.push_back(enabled ? 1 : 0);
 
     auto add_axis = [&](const JointDofConfig& d){
@@ -1182,12 +1183,12 @@ size_t Builder::add_joint(const JointType joint_type, const int parent, const in
     return joint_index;
 }
 
-size_t Builder::add_joint_revolute(int parent, int child, std::optional<Vec3> axis, TTransform parent_xform,
-    TTransform child_xform, std::optional<float> target_pos, std::optional<float> target_vel,
+int Builder::add_joint_revolute(int parent, int child, std::optional<Vec3> axis, const TTransform& parent_xform,
+    const TTransform& child_xform, std::optional<float> target_pos, std::optional<float> target_vel,
     std::optional<float> target_ke, std::optional<float> target_kd, std::optional<float> limit_lower,
     std::optional<float> limit_upper, std::optional<float> limit_ke, std::optional<float> limit_kd,
     std::optional<float> armature, std::optional<float> effort_limit, std::optional<float> velocity_limit,
-    std::optional<float> friction, std::string key, bool collision_filter_parent, bool enabled) {
+    std::optional<float> friction, std::string key, bool collision_filter_parent, bool enabled) const {
 
     JointDofConfig ax_cfg( Vec3::UnitX());
     if (axis)
@@ -1225,6 +1226,126 @@ size_t Builder::add_joint_revolute(int parent, int child, std::optional<Vec3> ax
     );
 }
 
+int Builder::add_joint_free(const int child, const TTransform &parent_xform, const TTransform &child_xform,
+                               std::string key, const bool collision_filter_parent, const bool enabled) const {
+
+    const std::array<JointDofConfig, 3> lin = {
+        JointDofConfig::create_unlimited(Vec3::UnitX()),
+        JointDofConfig::create_unlimited(Vec3::UnitY()),
+        JointDofConfig::create_unlimited(Vec3::UnitZ()),
+    };
+
+    const std::array<JointDofConfig, 3> ang = {
+        JointDofConfig::create_unlimited(Vec3::UnitX()),
+        JointDofConfig::create_unlimited(Vec3::UnitY()),
+        JointDofConfig::create_unlimited(Vec3::UnitZ()),
+    };
+
+    const int joint_id = add_joint(
+    JointType::FREE,
+    -1,
+    child,
+    /*linear_axes=*/std::span<const JointDofConfig>(lin),
+    /*angular_axes=*/std::span<const JointDofConfig>(ang),
+    parent_xform,
+    child_xform,
+    /*key=*/std::move(key),
+    collision_filter_parent,
+    enabled);
+
+    // 初始化：把 child body 的初始 transform 写进 joint_q
+    const int q_start = model_.joint_q_start[joint_id];
+    auto X = TTransform(model_.body_pos0[child], model_.body_rot0[child]);
+
+    model_.joint_q[q_start + 0] = X.p.x();
+    model_.joint_q[q_start + 1] = X.p.y();
+    model_.joint_q[q_start + 2] = X.p.z();
+    model_.joint_q[q_start + 3] = X.q.x();
+    model_.joint_q[q_start + 4] = X.q.y();
+    model_.joint_q[q_start + 5] = X.q.z();
+    model_.joint_q[q_start + 6] = X.q.w();
+
+
+    return joint_id;
+}
+
+int Builder::add_articulation(const std::span<const int> joints, std::string key) const {
+
+    if (joints.empty()) {
+        throw std::runtime_error("Cannot create an articulation with no joints");
+    }
+
+    // 1 & 2) Validate monotonically increasing,
+    for (size_t i = 1; i < joints.size(); ++i) {
+        if (joints[i] <= joints[i - 1]) {
+            throw std::runtime_error(
+                "Joints must be provided in monotonically increasing order. "
+                "Got non-monotonic order or duplicates."
+            );
+        }
+        if (joints[i] != joints[i - 1] + 1) {
+            throw std::runtime_error(
+                "Joints must be contiguous. There is a gap between consecutive joint indices. "
+                "Create all joints for an articulation before creating joints for another articulation."
+            );
+        }
+    }
+
+    // 3) Validate all joints exist and don't already belong to an articulation
+    const int max_valid_joint = std::max(0, static_cast<int>(model_.num_joints) - 1);
+    for (const int joint_idx : joints) {
+        if (joint_idx < 0 || joint_idx >= static_cast<int>(model_.num_joints)) {
+            throw std::runtime_error(
+                "Joint index " + std::to_string(joint_idx) + " is out of range. Valid range is 0 to " +
+                std::to_string(max_valid_joint)
+            );
+        }
+
+        if (model_.joint_articulation[joint_idx] >= 0) {
+            int existing_art = model_.joint_articulation[joint_idx];
+            const std::string& jkey = (joint_idx < static_cast<int>(model_.joint_key.size()))
+                                      ? model_.joint_key[joint_idx] : "<unnamed>";
+            const std::string& akey = (existing_art < static_cast<int>(model_.articulation_key.size()))
+                                      ? model_.articulation_key[existing_art] : "<unnamed>";
+
+            throw std::runtime_error(
+                "Joint " + std::to_string(joint_idx) + " ('" + jkey + "') already belongs to articulation " +
+                std::to_string(existing_art) + " ('" + akey + "'). Each joint can only belong to one articulation."
+            );
+        }
+    }
+
+    // 4) Basic tree structure validation (single parent per child within this articulation)
+    std::unordered_map<int, int> child_to_parent;
+    child_to_parent.reserve(joints.size());
+    for (int joint_idx : joints) {
+        const int child  = model_.joint_child[joint_idx];
+        const int parent = model_.joint_parent[joint_idx];
+
+        auto it = child_to_parent.find(child);
+        if (it != child_to_parent.end() && it->second != parent) {
+            throw std::runtime_error(
+                "Body " + std::to_string(child) + " has multiple parents in this articulation: " +
+                std::to_string(it->second) + " and " + std::to_string(parent) +
+                ". This creates an invalid tree structure. Loop-closing joints must not be part of an articulation."
+            );
+        }
+        child_to_parent[child] = parent;
+    }
+
+    // 5) Store the articulation using the first joint's index as the start
+    const int articulation_idx = model_.num_articulation++;
+    model_.articulation_start.push_back(joints.front());
+    model_.articulation_key.push_back(key.empty() ? ("articulation_" + std::to_string(articulation_idx)) : std::move(key));
+
+    // 6) Mark all joints as belonging to this articulation
+    for (const int joint_idx : joints) {
+         model_.joint_articulation[joint_idx] = articulation_idx;
+    }
+
+    return articulation_idx;
+
+}
 
 
 std::pair<int, int> Builder::get_joint_dof_coord_count(JointType joint_type, int num_axes) {

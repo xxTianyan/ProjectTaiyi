@@ -77,14 +77,14 @@ public:
     [[nodiscard]] size_t add_ground_plane() const;
 
     // --------------- joints ---------------------
-    size_t add_joint(JointType joint_type, int parent, int child, std::span<const JointDofConfig> linear_axes = {},
+    int add_joint(JointType joint_type, int parent, int child, std::span<const JointDofConfig> linear_axes = {},
                      std::span<const JointDofConfig> angular_axes = {},
-                     const TTransform &parent_xform = TTransform::Identity(), const TTransform &child_tform = TTransform::Identity(),
+                     const TTransform &parent_xform = TTransform::Identity(), const TTransform &child_xform = TTransform::Identity(),
                      std::string key = {}, bool collision_filter_parent = true, bool enabled = true) const;
 
-    size_t add_joint_revolute(int parent, int child, std::optional<Vec3> axis = std::nullopt,
-                              TTransform parent_xform = TTransform::Identity(),
-                              TTransform child_xform = TTransform::Identity(),
+    int add_joint_revolute(int parent, int child, std::optional<Vec3> axis = std::nullopt,
+                              const TTransform& parent_xform = TTransform::Identity(),
+                              const TTransform& child_xform = TTransform::Identity(),
                               std::optional<float> target_pos = std::nullopt,
                               std::optional<float> target_vel = std::nullopt,
                               std::optional<float> target_ke = std::nullopt,
@@ -97,11 +97,12 @@ public:
                               std::optional<float> effort_limit = std::nullopt,
                               std::optional<float> velocity_limit = std::nullopt,
                               std::optional<float> friction = std::nullopt, std::string key = {},
-                              bool collision_filter_parent = true, bool enabled = true);
+                              bool collision_filter_parent = true, bool enabled = true) const;
 
-    /*
-     * TODO: complete add_articulation
-     */
+    int add_joint_free(int child, const TTransform &parent_xform, const TTransform &child_xform, std::string key = {},
+                          bool collision_filter_parent = true, bool enabled = true) const;
+
+    int add_articulation(std::span<const int> joints, std::string key) const;
 
     static std::pair<int, int> get_joint_dof_coord_count(JointType joint_type, int num_axes);
 
