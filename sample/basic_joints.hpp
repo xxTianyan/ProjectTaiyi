@@ -9,6 +9,7 @@
 #include "Sample.h"
 #include "Scene.h"
 #include "VBDSolver.h"
+#include "mujoco/OrderSolver.h"
 
 class BasicJoints final : public Sample {
 
@@ -63,9 +64,7 @@ public:
 
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
-        solver_ = std::make_unique<VBDSolver>(scene_->model_, 10, soft_bunny(), dbg_.get());
-
-
+        solver_ = std::make_unique<OrderSolver>(scene_->model_);
 
     }
 

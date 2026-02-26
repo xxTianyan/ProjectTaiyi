@@ -8,9 +8,8 @@
 #include "ISolver.h"
 #include "Model.h"
 
-class OrderSolver : ISolver {
+class OrderSolver : public ISolver {
 public:
-
     explicit OrderSolver(const MModel &model, const float angular_damping = 0.05f,
         const int update_mass_matrix_interval = 1, const float friction_smoothing = 1.0f) :
         model_(model),

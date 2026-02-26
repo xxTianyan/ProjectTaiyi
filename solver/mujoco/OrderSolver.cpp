@@ -25,7 +25,7 @@ void OrderSolver::compute_articulation_indices() {
     if (model_.num_joints == 0)
         return;
 
-if (model_.articulation_start.size() != model_.num_articulation + 1) {
+    if (model_.articulation_start.size() != model_.num_articulation + 1) {
         throw std::runtime_error(
             "compute_articulation_indices: model_.articulation_start must contain a sentinel "
             "(size must be num_articulation + 1).");
