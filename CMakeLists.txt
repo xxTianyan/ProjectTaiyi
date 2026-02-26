@@ -82,7 +82,8 @@ add_executable(Taiyi sample/main.cpp
         solver/VBD/VBDParticle_Kernel.cpp
         solver/VBD/VBDRigid_Kernel.cpp
         sim/Control.h
-        sample/basic_joints.hpp)
+        sample/basic_joints.hpp
+        solver/mujoco/MujocoSolver.cpp)
 
 target_include_directories(Taiyi
         PRIVATE

@@ -1168,12 +1168,12 @@ int Builder::add_joint(const JointType joint_type, const int parent, const int c
     model_.joint_q_start.push_back(model_.num_joint_coord);
     model_.joint_qd_start.push_back(model_.num_joint_dof);
 
-    model_.joint_q.resize(model_.joint_q.size() + coord_count, 0.0f);
-    model_.joint_qd.resize(model_.joint_qd.size() + dof_count, 0.0f);
+    model_.joint_q0.resize(model_.joint_q0.size() + coord_count, 0.0f);
+    model_.joint_qd0.resize(model_.joint_qd0.size() + dof_count, 0.0f);
 
     // ensure valid quaternion for types that store rotation as quat in q
     if (joint_type == JointType::FREE || joint_type == JointType::BALL || joint_type == JointType::DISTANCE) {
-        if (coord_count > 0) model_.joint_q.back() = 1.0f;
+        if (coord_count > 0) model_.joint_q0.back() = 1.0f;
     }
 
     model_.num_joint_coord += coord_count;
@@ -1253,17 +1253,17 @@ int Builder::add_joint_free(const int child, const TTransform &parent_xform, con
     collision_filter_parent,
     enabled);
 
-    // 初始化：把 child body 的初始 transform 写进 joint_q
+    // 初始化：把 child body 的初始 transform 写进 joint_q0
     const int q_start = model_.joint_q_start[joint_id];
     auto X = TTransform(model_.body_pos0[child], model_.body_rot0[child]);
 
-    model_.joint_q[q_start + 0] = X.p.x();
-    model_.joint_q[q_start + 1] = X.p.y();
-    model_.joint_q[q_start + 2] = X.p.z();
-    model_.joint_q[q_start + 3] = X.q.x();
-    model_.joint_q[q_start + 4] = X.q.y();
-    model_.joint_q[q_start + 5] = X.q.z();
-    model_.joint_q[q_start + 6] = X.q.w();
+    model_.joint_q0[q_start + 0] = X.p.x();
+    model_.joint_q0[q_start + 1] = X.p.y();
+    model_.joint_q0[q_start + 2] = X.p.z();
+    model_.joint_q0[q_start + 3] = X.q.x();
+    model_.joint_q0[q_start + 4] = X.q.y();
+    model_.joint_q0[q_start + 5] = X.q.z();
+    model_.joint_q0[q_start + 6] = X.q.w();
 
 
     return joint_id;

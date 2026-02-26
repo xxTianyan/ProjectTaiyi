@@ -52,6 +52,11 @@ struct State {
     std::vector<Vec3> body_force;           // world external force
     std::vector<Vec3> body_torque;          // world external torque
 
+    // joints
+    std::vector<float> joint_q;             // joint general position
+    std::vector<float> joint_qd;            // joint general velocity
+    std::vector<float> joint_tau;             // joint general force
+
     void resize_particle(const size_t n_nodes) {
         particle_pos.resize(n_nodes);
         particle_vel.resize(n_nodes);
@@ -65,6 +70,12 @@ struct State {
         body_ang_vel.resize(n);
         body_force.resize(n);
         body_torque.resize(n);
+    }
+
+    void resize_joints(const size_t dofs, const size_t coords) {
+        joint_q.resize(coords);
+        joint_qd.resize(dofs);
+        joint_tau.resize(dofs);
     }
 
 };
@@ -127,9 +138,9 @@ struct MModel {
     size_t num_joints = 0;
     size_t num_joint_dof = 0;
     size_t num_joint_coord = 0;
-    std::vector<float> joint_q;     // Generalized joint positions for state initialization
-    std::vector<float> joint_qd;    // Generalized joint velocities for state initialization
-    std::vector<float> joint_f;     // Generalized joint forces for state initialization
+    std::vector<float> joint_q0;     // Generalized joint positions for state initialization
+    std::vector<float> joint_qd0;    // Generalized joint velocities for state initialization
+    std::vector<float> joint_f0;     // Generalized joint forces for state initialization
     std::vector<JointType> joint_type;  // Joint type
     std::vector<std::string> joint_key; // Joint keys
 
@@ -187,6 +198,12 @@ struct MModel {
 
         std::ranges::fill(s.body_force,  Vec3::Zero());
         std::ranges::fill(s.body_torque, Vec3::Zero());
+
+        // -------------- joints ---------------------
+        s.resize_joints(num_joint_dof, num_joint_coord);
+        std::ranges::copy(joint_q0, s.joint_q.begin());
+        std::ranges::copy(joint_qd0, s.joint_qd.begin());
+        std::ranges::copy(joint_f0, s.joint_tau.begin());
 
         return s;
     }
