@@ -6,7 +6,7 @@
 #define TAIYI_ISOLVER_H
 
 struct State;
-
+struct Contacts;
 
 class ISolver {
 public:

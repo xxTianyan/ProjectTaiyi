@@ -1344,7 +1344,6 @@ int Builder::add_articulation(const std::span<const int> joints, std::string key
     }
 
     return articulation_idx;
-
 }
 
 
@@ -1366,6 +1365,10 @@ std::pair<int, int> Builder::get_joint_dof_coord_count(JointType joint_type, int
 
     return {dof_count, coord_count};
 
+}
+
+void Builder::finalize() const {
+    model_.articulation_start.push_back(model_.num_joints);
 }
 
 void Builder::PrepareCapacity(const size_t num) const {

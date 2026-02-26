@@ -106,6 +106,8 @@ public:
 
     static std::pair<int, int> get_joint_dof_coord_count(JointType joint_type, int num_axes);
 
+    void finalize() const;
+
 private:
 
     MModel& model_;

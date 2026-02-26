@@ -59,6 +59,7 @@ public:
             TTransform(Vec3(0.0,0.7,0.0), Quat::Identity()));
 
         builder.add_articulation(std::array{joint_free, joint_revolute}, "sphere_n_capsule");
+        builder.finalize();
 
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
