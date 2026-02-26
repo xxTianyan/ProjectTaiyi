@@ -13,6 +13,7 @@
 #include "RenderHelper.h"
 #include "DbgUI.hpp"
 
+class ISolver;
 class Scene;
 class VBDSolver;
 struct AppContext;
@@ -76,7 +77,7 @@ protected:
     // for simulation, remember to initialize
     std::unique_ptr<Scene> scene_;
     // need to change to ISolver
-    std::unique_ptr<VBDSolver> solver_;
+    std::unique_ptr<ISolver> solver_;
     // debugger
     std::unique_ptr<SolverDebugger> dbg_;
 

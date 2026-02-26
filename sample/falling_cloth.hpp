@@ -31,8 +31,9 @@ public:
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
         solver_ = std::make_unique<VBDSolver>(scene_->model_, 2, hard_cloth(),dbg_.get());
-        solver_->set_self_collision(0.16, 0.2, 0.1);
-
+        if (auto* vbd = dynamic_cast<VBDSolver*>(solver_.get())) {
+            vbd->set_self_collision(0.16, 0.2, 0.1);
+        }
     };
 
     void Render(AppContext &ctx) override {
@@ -55,7 +56,9 @@ public:
         renderHelper_.Draw(scene_->state_out(), ctx.is_wire_mode);
         rlEnableBackfaceCulling();
 
-        solver_->draw_triangle_bvh(dbgTriTree);
+        if (auto* vbd = dynamic_cast<VBDSolver*>(solver_.get())) {
+            vbd->draw_triangle_bvh(dbgTriTree);
+        }
 
         EndMode3D();
     };
