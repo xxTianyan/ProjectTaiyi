@@ -4,6 +4,19 @@
 
 #include "OrderSolver.h"
 
+void OrderSolver::clear() {
+    if (topology_version_ != model_.topology_version) {
+        topology_version_ = model_.topology_version;
+        compute_articulation_indices();
+        allocate_model_aux_vars();
+    }
+}
+
+void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contacts, float dt) {
+
+
+}
+
 void OrderSolver::compute_articulation_indices() {
     // calculate total size and offsets of Jacobian and mass matrices for entire system
     J_size = 0;
@@ -101,6 +114,57 @@ void OrderSolver::compute_articulation_indices() {
         M_size += spatial_rows * spatial_rows;
         H_size += dof_count_local * dof_count_local;
     }
+}
+
+void OrderSolver::allocate_model_aux_vars() {
+
+    // Allocate system matrices
+    if (model_.num_joints > 0) {
+        M.assign(M_size, 0.0f);
+        J.assign(J_size, 0.0f);
+        P.resize(J_size);
+        H.resize(H_size);
+        L.assign(H_size, 0.0f);   // zero because later factorization may only write one triangle
+    } else {
+        M.clear();
+        J.clear();
+        P.clear();
+        H.clear();
+        L.clear();
+    }
+
+    // precompute static per-body solver data
+    if (model_.num_bodies > 0) {
+        body_I_m.resize(model_.num_bodies);
+        body_X_com.resize(model_.num_bodies);
+
+        for (size_t b = 0; b < model_.num_bodies; ++b) {
+            body_I_m[b] = compute_spatial_inertia(model_.body_inertia[b], model_.body_inv_mass[b]);
+            body_X_com[b] = compute_com_transform(model_.body_local_com[b]);
+        }
+    } else {
+        body_I_m.clear();
+        body_X_com.clear();
+    }
+
+}
+
+Mat66 OrderSolver::compute_spatial_inertia(const Mat3 &I, const float mass) {
+    Mat66 out = Mat66::Zero();
+    // top-left = m * I3
+    out.block<3,3>(0,0) = 1 / mass * Mat3::Identity();
+
+    // bottom-right = rotational inertia
+    out.block<3,3>(3,3) = I;
+
+    return out;
+}
+
+TTransform OrderSolver::compute_com_transform(const Vec3 &com) {
+    TTransform X;
+    X.p = com;
+    X.q = Quat::Identity();
+    return X;
 
 };
 

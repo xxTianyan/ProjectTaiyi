@@ -19,13 +19,15 @@ public:
 
     ~OrderSolver() override = default;
 
-    void clear() override{};
+    void clear() override;
 
-    void Step(State& state_in, State& state_out, const Contacts* contacts, float dt) override{};
+    void Step(State& state_in, State& state_out, const Contacts* contacts, float dt) override;
 
 private:
 
     void compute_articulation_indices();
+
+    void allocate_model_aux_vars();
 
 private:
 
@@ -57,6 +59,24 @@ private:
     std::vector<int> articulation_dof_start;
     std::vector<int> articulation_coord_start;
 
+    // system matrices (flattened)
+    std::vector<float> M;
+    std::vector<float> J;
+    std::vector<float> P;
+    std::vector<float> H;
+    std::vector<float> L;
+
+    //  model-dependent static caches
+    std::vector<Mat66> body_I_m;
+    std::vector<TTransform> body_X_com;
+
+    uint64_t topology_version_ = 0;
+
+private:
+
+    static Mat66 compute_spatial_inertia(const Mat3& I, float mass);
+
+    static TTransform compute_com_transform(const Vec3& com);
 
 };
 
