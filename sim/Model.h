@@ -55,7 +55,7 @@ struct State {
     // joints
     std::vector<float> joint_q;             // joint general position
     std::vector<float> joint_qd;            // joint general velocity
-    std::vector<float> joint_tau;             // joint general force
+    // std::vector<float> joint_tau;             // joint general force
 
     void resize_particle(const size_t n_nodes) {
         particle_pos.resize(n_nodes);
@@ -75,7 +75,7 @@ struct State {
     void resize_joints(const size_t dofs, const size_t coords) {
         joint_q.resize(coords);
         joint_qd.resize(dofs);
-        joint_tau.resize(dofs);
+        // joint_tau.resize(dofs);
     }
 
 };
@@ -203,7 +203,7 @@ struct MModel {
         s.resize_joints(num_joint_dof, num_joint_coord);
         std::ranges::copy(joint_q0, s.joint_q.begin());
         std::ranges::copy(joint_qd0, s.joint_qd.begin());
-        std::ranges::copy(joint_f0, s.joint_tau.begin());
+        // std::ranges::copy(joint_f0, s.joint_tau.begin());
 
         return s;
     }
