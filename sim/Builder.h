@@ -67,7 +67,7 @@ public:
                                            const Vec3 &local_pos = Vec3::Zero(),
                                            const Quat &local_rot = Quat::Identity(), float density = -1.0f,
                                            float thickness = -1.0f, float margin = -1.0f, bool contribute_mass = true,
-                                           bool contribute_render_mesh = true);
+                                           bool contribute_render_mesh = true) const;
 
     [[nodiscard]] size_t add_shape_sphere(size_t body_id, float radius, const Vec3 &local_pos = Vec3::Zero(),
                                           const Quat &local_rot = Quat::Identity(), float density = -1.0f,
@@ -77,12 +77,12 @@ public:
     [[nodiscard]] size_t add_ground_plane() const;
 
     // --------------- joints ---------------------
-    int add_joint(JointType joint_type, int parent, int child, std::span<const JointDofConfig> linear_axes = {},
+    [[nodiscard]] int add_joint(JointType joint_type, int parent, int child, std::span<const JointDofConfig> linear_axes = {},
                      std::span<const JointDofConfig> angular_axes = {},
                      const TTransform &parent_xform = TTransform::Identity(), const TTransform &child_xform = TTransform::Identity(),
                      std::string key = {}, bool collision_filter_parent = true, bool enabled = true) const;
 
-    int add_joint_revolute(int parent, int child, std::optional<Vec3> axis = std::nullopt,
+    [[nodiscard]] int add_joint_revolute(int parent, int child, std::optional<Vec3> axis = std::nullopt,
                               const TTransform& parent_xform = TTransform::Identity(),
                               const TTransform& child_xform = TTransform::Identity(),
                               std::optional<float> target_pos = std::nullopt,
@@ -99,10 +99,10 @@ public:
                               std::optional<float> friction = std::nullopt, std::string key = {},
                               bool collision_filter_parent = true, bool enabled = true) const;
 
-    int add_joint_free(int child, const TTransform &parent_xform, const TTransform &child_xform, std::string key = {},
+    [[nodiscard]] int add_joint_free(int child, const TTransform &parent_xform, const TTransform &child_xform, std::string key = {},
                           bool collision_filter_parent = true, bool enabled = true) const;
 
-    int add_articulation(std::span<const int> joints, std::string key) const;
+    [[nodiscard]] int add_articulation(std::span<const int> joints, std::string key) const;
 
     static std::pair<int, int> get_joint_dof_coord_count(JointType joint_type, int num_axes);
 

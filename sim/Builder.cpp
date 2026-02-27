@@ -574,8 +574,8 @@ size_t Builder::add_rigidbody(const std::string &name, const Vec3 &pos, const Qu
 
     model_.body_pos0.push_back(pos);
     model_.body_rot0.push_back(rot.normalized());
-    model_.body_lin_vel0.push_back(Vec3::Zero());
-    model_.body_ang_vel0.push_back(Vec3::Zero());
+    model_.body_lin_vel0.emplace_back(Vec3::Zero());
+    model_.body_ang_vel0.emplace_back(Vec3::Zero());
 
     model_.body_local_com.push_back(com);
     model_.body_inertia.push_back(inertia_tensor);
@@ -620,7 +620,7 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     // --- push shape arrays ---
     model_.shape_pos0.push_back(local_pos);
     model_.shape_rot0.push_back(q);
-    model_.shape_body.push_back(body_id);
+    model_.shape_body.push_back(static_cast<int>(body_id));
     model_.shape_type.push_back(static_cast<int>(GeoType::BOX));
     model_.shape_scale.emplace_back(hx, hy, hz);
     model_.shape_thickness.push_back(thickness);
@@ -642,7 +642,7 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     auto& info = model_.body_infos[body_id];
     info.shapes.count += 1;
 
-    // --- mass/inertia contribution (Newton-like) ---
+    // --- mass/inertia contribution  ---
     if (contribute_mass && density > 0.0f) {
         // box volume = (2hx)(2hy)(2hz) = 8 hx hy hz
         const float volume = 8.0f * hx * hy * hz;
@@ -717,7 +717,7 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
 
 size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_height, const Vec3 &local_pos,
     const Quat &local_rot, float density, float thickness, float margin, bool contribute_mass,
-    bool contribute_render_mesh) {
+    bool contribute_render_mesh) const {
 
     if (body_id < 0 || static_cast<size_t>(body_id) >= model_.num_bodies) {
         throw std::runtime_error("addShapeBox(): invalid body_id");
@@ -809,17 +809,17 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
 
     // --- render mesh contribution ---
     if (contribute_render_mesh) {
-        const int slices = 24;
-        const int hemiStacks = 8;   // pole -> equator stacks per hemi (excluding pole itself)
-        const int cylStacks  = 1;
+        constexpr int slices = 24;
+        constexpr int hemiStacks = 8;   // pole -> equator stacks per hemi (excluding pole itself)
+        constexpr int cylStacks  = 1;
 
         const size_t v_begin = model_.body_render_vertices.size();
         const size_t t_begin = model_.render_tris.size();
 
         constexpr float kPi = 3.14159265358979323846f;
 
-        const int ringVerts = slices + 1;         // keep seam duplicate for simplicity
-        const size_t ringStride = (size_t)ringVerts;
+        constexpr int ringVerts = slices + 1;         // keep seam duplicate for simplicity
+        constexpr auto ringStride = static_cast<size_t>(ringVerts);
 
         auto to_body = [&](const Vec3& p_shape)->Vec3 {
             return local_pos + q * p_shape;
@@ -827,7 +827,7 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
 
         auto push_ring = [&](float y, float rad) {
             for (int j = 0; j <= slices; ++j) {
-                const float u = float(j) / float(slices);
+                const float u = static_cast<float>(j) / static_cast<float>(slices);
                 const float theta = u * (2.0f * kPi);
                 const float st = std::sin(theta);
                 const float ct = std::cos(theta);
@@ -838,10 +838,10 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
         auto add_quads = [&](size_t ring0_begin, size_t ring1_begin) {
             // CCW front-face
             for (int j = 0; j < slices; ++j) {
-                const uint32_t a = (uint32_t)(ring0_begin + (size_t)j);
-                const uint32_t b = (uint32_t)(ring1_begin + (size_t)j);
-                const uint32_t c = (uint32_t)(ring1_begin + (size_t)(j + 1));
-                const uint32_t d = (uint32_t)(ring0_begin + (size_t)(j + 1));
+                const auto a = static_cast<uint32_t>(ring0_begin + static_cast<size_t>(j));
+                const auto b = static_cast<uint32_t>(ring1_begin + static_cast<size_t>(j));
+                const auto c = static_cast<uint32_t>(ring1_begin + static_cast<size_t>(j + 1));
+                const auto d = static_cast<uint32_t>(ring0_begin + static_cast<size_t>(j + 1));
                 model_.render_tris.emplace_back(a, b, c);
                 model_.render_tris.emplace_back(a, c, d);
             }
@@ -852,8 +852,8 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
             // CCW: for top pole, triangles (pole, j, j+1) usually works;
             // for bottom pole, flip (pole, j+1, j)
             for (int j = 0; j < slices; ++j) {
-                const uint32_t v0 = (uint32_t)(ring_begin + (size_t)j);
-                const uint32_t v1 = (uint32_t)(ring_begin + (size_t)(j + 1));
+                const auto v0 = static_cast<uint32_t>(ring_begin + static_cast<size_t>(j));
+                const auto v1 = static_cast<uint32_t>(ring_begin + static_cast<size_t>(j + 1));
                 if (is_top) {
                     model_.render_tris.emplace_back(pole, v0, v1);
                 } else {
@@ -864,7 +864,7 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
 
         // ===== 1) Top pole (single vertex) =====
         const float y_top_pole = +half_height + radius;
-        const uint32_t topPole = (uint32_t)model_.body_render_vertices.size();
+        const auto topPole = static_cast<uint32_t>(model_.body_render_vertices.size());
         model_.body_render_vertices.push_back(to_body(Vec3(0.0f, y_top_pole, 0.0f)));
 
         // ===== 2) Top hemisphere rings (exclude pole, include equator) =====
@@ -877,15 +877,15 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
             const float rad = radius * std::sin(alpha);
             push_ring(y, rad);
         }
-        const size_t topEquatorRing = topHemiBase + (size_t)(hemiStacks - 1) * ringStride;
+        const size_t topEquatorRing = topHemiBase + static_cast<size_t>(hemiStacks - 1) * ringStride;
 
         // Fan connect top pole -> first ring
         add_fan(topPole, topHemiBase, /*is_top=*/true);
 
         // Connect top hemi rings with quads
         for (int i = 0; i < hemiStacks - 1; ++i) {
-            const size_t r0 = topHemiBase + (size_t)i * ringStride;
-            const size_t r1 = topHemiBase + (size_t)(i + 1) * ringStride;
+            const size_t r0 = topHemiBase + static_cast<size_t>(i) * ringStride;
+            const size_t r1 = topHemiBase + static_cast<size_t>(i + 1) * ringStride;
             add_quads(r0, r1);
         }
 
@@ -911,7 +911,7 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
         // ===== 4) Bottom hemisphere rings (exclude equator, exclude pole) =====
         const size_t botHemiBase = model_.body_render_vertices.size();
         for (int i = 1; i < hemiStacks; ++i) {
-            const float t = float(i) / float(hemiStacks);
+            const float t = static_cast<float>(i) / static_cast<float>(hemiStacks);
             const float beta = t * (0.5f * kPi); // (0, pi/2)
             const float y = -half_height - radius * std::sin(beta);
             const float rad = radius * std::cos(beta);
@@ -932,7 +932,7 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
 
         // ===== 5) Bottom pole (single vertex) + fan =====
         const float y_bot_pole = -half_height - radius;
-        const uint32_t botPole = (uint32_t)model_.body_render_vertices.size();
+        const auto botPole = (uint32_t)model_.body_render_vertices.size();
         model_.body_render_vertices.push_back(to_body(Vec3(0.0f, y_bot_pole, 0.0f)));
 
         // Fan connect last bottom ring -> bottom pole
@@ -1445,8 +1445,6 @@ void Builder::accumulate_mass_properties(const int body_id, const float m_add, c
     float m0 = 0.0f;
     if (model_.body_inv_mass[body_id] > 0.0f) {
         m0 = 1.0f / model_.body_inv_mass[body_id];
-    } else {
-        m0 = 0.0f; // treat as "no mass yet"
     }
 
     const Vec3& c0 = model_.body_local_com[body_id];
