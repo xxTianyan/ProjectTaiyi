@@ -3,6 +3,7 @@
 //
 
 #include "OrderSolver.h"
+#include "Math.hpp"
 
 void OrderSolver::clear() {
     if (topology_version_ != model_.topology_version) {
@@ -13,6 +14,25 @@ void OrderSolver::clear() {
 }
 
 void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contacts, float dt) {
+
+    clear();
+
+    if (!state_aux_allocated_)
+        allocate_state_aux_vars();
+
+    if (model_.num_bodies > 0)
+        convert_body_force_com_to_origin(state_in);
+
+    if (model_.num_joints > 0) {
+        eval_rigid_fk(state_in);
+
+         // evaluate joint inertias, motion vectors, and forces
+        for (auto& f : body_f_s) { f.setZero();}
+
+
+
+    }
+
 
 
 }
@@ -149,6 +169,116 @@ void OrderSolver::allocate_model_aux_vars() {
 
 }
 
+void OrderSolver::allocate_state_aux_vars() {
+
+    if (model_.num_bodies == 0)
+        return;
+
+    // Joint-space runtime buffers
+
+    // qdd: same size as joint_qd, initialized to zero
+    joint_qdd.assign(model_.num_joint_dof, 0.0f);
+
+    // tau: same size as joint_qd
+    joint_tau.assign(model_.num_joint_dof, 0.0f);
+
+    // one spatial motion subspace vector per DOF
+    joint_S_s.resize(model_.num_joint_dof);
+    for (size_t i = 0; i < model_.num_joint_dof; ++i) {
+        joint_S_s[i].setZero();
+    }
+
+    // Derived rigid-body data
+
+    // body_q_com: same count as bodies
+    body_q_com.assign(model_.num_bodies, TTransform::Identity());
+
+    // body_I_s
+    body_I_s.resize(model_.num_bodies);
+    for (size_t i = 0; i < model_.num_bodies; ++i) {
+        body_I_s[i].setZero();
+    }
+
+    // body_v_s
+    body_v_s.resize(model_.num_bodies);
+    for (size_t i = 0; i < model_.num_bodies; ++i) {
+        body_v_s[i].setZero();
+    }
+
+    // body_a_s
+    body_a_s.resize(model_.num_bodies);
+    for (size_t i = 0; i < model_.num_bodies; ++i) {
+        body_a_s[i].setZero();
+    }
+
+    // body_f_s
+    body_f_s.resize(model_.num_bodies);
+    for (size_t i = 0; i < model_.num_bodies; ++i) {
+        body_f_s[i].setZero();
+    }
+
+    // body_ft_s
+    body_ft_s.resize(model_.num_bodies);
+    for (size_t i = 0; i < model_.num_bodies; ++i) {
+        body_ft_s[i].setZero();
+    }
+
+    state_aux_allocated_ = true;
+}
+
+void OrderSolver::convert_body_force_com_to_origin(State& state_in) const {
+    const size_t n = model_.num_bodies;
+    const auto& body_pos = state_in.body_pos;
+    const auto& body_rot = state_in.body_rot;
+    auto& body_force = state_in.body_force;
+    auto& body_torque = state_in.body_torque;
+
+    for (size_t i = 0; i < n; ++i) {
+        const auto& p = body_pos[i];
+        const auto& q = body_rot[i];
+        auto body_q = TTransform{p, q};
+
+        const Vec3& f = body_force[i];
+        const Vec3& tau_com = body_torque[i];
+
+        if (f.isZero() && tau_com.isZero())
+            continue;
+
+        // const State& state_in
+        TTransform com_world = body_q * body_X_com[i];
+        Vec3 r_com = com_world.p;
+
+        // shift torque from COM to world origin
+        const Vec3 tau_world_origin = tau_com + r_com.cross(f);
+
+        body_force[i] = -f;
+        body_torque[i] = -tau_world_origin;
+    }
+}
+
+void OrderSolver::eval_rigid_fk(State &state_in) {
+    for (size_t art = 0; art < model_.num_articulation; ++art) {
+        const int start = model_.articulation_start[art];
+        const int end = model_.articulation_start[art + 1];
+
+        for (int j = start; j < end; ++j) {
+            compute_link_transform(j, state_in);
+        }
+    }
+}
+
+void OrderSolver::eval_rigid_id(const State &state_in) {
+    for (size_t art = 0; art < model_.num_articulation; ++art) {
+        const int start = model_.articulation_start[art];
+        const int end =model_.articulation_start[art + 1];
+
+        for (int j = start; j < end; ++j) {
+            compute_link_velocity(j, state_in);
+        }
+    }
+
+}
+
 Mat66 OrderSolver::compute_spatial_inertia(const Mat3 &I, const float mass) {
     Mat66 out = Mat66::Zero();
     // top-left = m * I3
@@ -166,5 +296,407 @@ TTransform OrderSolver::compute_com_transform(const Vec3 &com) {
     X.q = Quat::Identity();
     return X;
 
-};
+}
+
+void OrderSolver::compute_link_transform(const int j, State &state_in) {
+
+    // topology
+    const int parent = model_.joint_parent[j];
+    const int child  = model_.joint_child[j];
+
+    // joint anchor transforms
+    const TTransform& p_X_pj = model_.joint_X_p[j];   // parent body -> parent joint anchor
+    const TTransform& c_X_cj = model_.joint_X_c[j];   // child  body -> child  joint anchor
+
+    // world transform of parent anchor frame
+    TTransform w_X_pj = p_X_pj;
+    if (parent >= 0) {
+        const TTransform w_X_p{state_in.body_pos[parent], state_in.body_rot[parent]};
+        w_X_pj = w_X_p * p_X_pj;
+    }
+
+    // joint metadata
+    const JointType type = model_.joint_type[j];
+    const int dof_start   = model_.joint_qd_start[j];   // for axis indexing
+    const int coord_start = model_.joint_q_start[j];    // for q indexing
+
+    const int lin_axis_count = model_.joint_dof_dim[j].first;
+    const int ang_axis_count = model_.joint_dof_dim[j].second;
+
+    // transform across the joint (depends on current joint_q)
+    const TTransform X_j = jcalc_transform(
+        type,
+        dof_start,
+        lin_axis_count,
+        ang_axis_count,
+        state_in.joint_q,
+        coord_start
+    );
+
+    // world transform of child joint anchor
+    const TTransform w_X_cj = w_X_pj * X_j;
+
+    // world transform of child body frame
+    const TTransform w_X_c = w_X_cj * c_X_cj.inverse();
+
+    // world transform of child COM frame
+    const TTransform& c_X_cc = body_X_com[child];   // child body -> child COM
+    const TTransform w_X_cc = w_X_c * c_X_cc;
+
+    // store body transform
+    state_in.body_pos[child] = w_X_c.p;
+    state_in.body_rot[child] = w_X_c.q;
+
+    // store COM transform
+    body_q_com[child] = w_X_cc;
+
+}
+
+TTransform OrderSolver::jcalc_transform(const JointType type, const int dof_start, int lin_axis_count, int ang_axis_count,
+    const std::vector<float> &joint_q, const int q_start) const {
+
+    // identity helpers
+    const Vec3 zero_pos = Vec3::Zero();
+    const Quat q_identity = Quat::Identity();
+
+    switch (type) {
+        case JointType::PRISMATIC: {
+            const float q = joint_q[q_start];
+            const Vec3& axis = model_.joint_axis[dof_start];
+            return TTransform{axis * q, q_identity};
+        }
+
+        case JointType::REVOLUTE: {
+            const float q = joint_q[q_start];
+            const Vec3& axis = model_.joint_axis[dof_start];
+            return TTransform{zero_pos, quat_from_axis_angle(axis, q)};
+        }
+
+        case JointType::BALL: {
+            const float qx = joint_q[q_start + 0];
+            const float qy = joint_q[q_start + 1];
+            const float qz = joint_q[q_start + 2];
+            const float qw = joint_q[q_start + 3];
+
+            Quat rot{qx, qy, qz, qw};
+            rot.normalize();   // 建议归一化，防止数值漂
+            return TTransform{zero_pos, rot};
+        }
+
+        case JointType::FIXED: {
+            return TTransform{zero_pos, q_identity};
+        }
+
+        case JointType::DISTANCE:
+        case JointType::FREE: {
+            const float px = joint_q[q_start + 0];
+            const float py = joint_q[q_start + 1];
+            const float pz = joint_q[q_start + 2];
+
+            const float qx = joint_q[q_start + 3];
+            const float qy = joint_q[q_start + 4];
+            const float qz = joint_q[q_start + 5];
+            const float qw = joint_q[q_start + 6];
+
+            Quat rot{qx, qy, qz, qw};
+            rot.normalize();
+            return TTransform{Vec3{px, py, pz}, rot};
+        }
+
+        // case JointType::D6: {}
+
+        default:
+            return TTransform::Identity();
+    }
+}
+
+SpatialVec OrderSolver::jcalc_motion(JointType type, int lin_axis_count, int ang_axis_count, const TTransform &w_X_pj,
+                                     const std::vector<float> &joint_qd, int qd_start) {
+
+    const Vec3 zero_v3{0.0f, 0.0f, 0.0f};
+
+    switch (type) {
+    case JointType::PRISMATIC: {
+        const Vec3& axis = model_.joint_axis[qd_start];
+
+        SpatialVec S_local = SpatialVec::Zero();
+        S_local.segment<3>(0) = axis;   // linear
+        // angular = 0
+
+        const SpatialVec S_s = transform_twist(w_X_pj, S_local);
+        const SpatialVec v_j_s = S_s * joint_qd[qd_start];
+
+        joint_S_s[qd_start] = S_s;
+        return v_j_s;
+    }
+
+    case JointType::REVOLUTE: {
+        const Vec3& axis = model_.joint_axis[qd_start];
+
+        SpatialVec S_local = SpatialVec::Zero();
+        // linear = 0
+        S_local.segment<3>(3) = axis;   // angular
+
+        const SpatialVec S_s = transform_twist(w_X_pj, S_local);
+        const SpatialVec v_j_s = S_s * joint_qd[qd_start];
+
+        joint_S_s[qd_start] = S_s;
+        return v_j_s;
+    }
+
+    case JointType::D6: {
+        SpatialVec v_j_s = SpatialVec::Zero();
+
+        // linear axes
+        for (int k = 0; k < lin_axis_count; ++k) {
+            const Vec3& axis = model_.joint_axis[qd_start + k];
+
+            SpatialVec S_local = SpatialVec::Zero();
+            S_local.segment<3>(0) = axis;
+
+            const SpatialVec S_s = transform_twist(w_X_pj, S_local);
+            joint_S_s[qd_start + k] = S_s;
+            v_j_s += S_s * joint_qd[qd_start + k];
+        }
+
+        // angular axes
+        for (int k = 0; k < ang_axis_count; ++k) {
+            const int idx = qd_start + lin_axis_count + k;
+            const Vec3& axis = model_.joint_axis[idx];
+
+            SpatialVec S_local = SpatialVec::Zero();
+            S_local.template segment<3>(3) = axis;
+
+            const SpatialVec S_s = transform_twist(w_X_pj, S_local);
+            joint_S_s[idx] = S_s;
+            v_j_s += S_s * joint_qd[idx];
+        }
+
+        return v_j_s;
+    }
+
+    case JointType::BALL: {
+        // three rotational dofs about x/y/z of the joint anchor frame
+        SpatialVec S0_local = SpatialVec::Zero();
+        SpatialVec S1_local = SpatialVec::Zero();
+        SpatialVec S2_local = SpatialVec::Zero();
+
+        S0_local.segment<3>(3) = Eigen::Vector3f(1.0f, 0.0f, 0.0f);
+        S1_local.segment<3>(3) = Eigen::Vector3f(0.0f, 1.0f, 0.0f);
+        S2_local.segment<3>(3) = Eigen::Vector3f(0.0f, 0.0f, 1.0f);
+
+        const SpatialVec S0 = transform_twist(w_X_pj, S0_local);
+        const SpatialVec S1 = transform_twist(w_X_pj, S1_local);
+        const SpatialVec S2 = transform_twist(w_X_pj, S2_local);
+
+        joint_S_s[qd_start + 0] = S0;
+        joint_S_s[qd_start + 1] = S1;
+        joint_S_s[qd_start + 2] = S2;
+
+        return
+            S0 * joint_qd[qd_start + 0] +
+            S1 * joint_qd[qd_start + 1] +
+            S2 * joint_qd[qd_start + 2];
+    }
+
+    case JointType::FIXED: {
+        return SpatialVec::Zero();
+    }
+
+    case JointType::FREE:
+    case JointType::DISTANCE: {
+        // local 6D twist = [vx, vy, vz, wx, wy, wz]
+        SpatialVec twist_local = SpatialVec::Zero();
+        twist_local(0) = joint_qd[qd_start + 0];
+        twist_local(1) = joint_qd[qd_start + 1];
+        twist_local(2) = joint_qd[qd_start + 2];
+        twist_local(3) = joint_qd[qd_start + 3];
+        twist_local(4) = joint_qd[qd_start + 4];
+        twist_local(5) = joint_qd[qd_start + 5];
+
+        const SpatialVec v_j_s = transform_twist(w_X_pj, twist_local);
+
+        // store motion subspace basis columns
+        for (int k = 0; k < 6; ++k) {
+            SpatialVec basis = SpatialVec::Zero();
+            basis(k) = 1.0f;
+            joint_S_s[qd_start + k] = transform_twist(w_X_pj, basis);
+        }
+
+        return v_j_s;
+    }
+
+    default:
+        // Optional: log warning here
+        // std::cerr << "jcalc_motion not implemented for joint type "
+        //           << static_cast<int>(type) << "\n";
+        return SpatialVec::Zero();
+    }
+
+}
+
+Quat OrderSolver::quat_from_axis_angle(const Vec3 &axis, const float angle) {
+    const float half = 0.5f * angle;
+    const float s = std::sin(half);
+    const float c = std::cos(half);
+
+    return Quat{
+        axis.x() * s,
+        axis.y() * s,
+        axis.z() * s,
+        c
+    };
+}
+
+void OrderSolver::compute_link_velocity(const int j, const State &state_in) {
+    const JointType type = model_.joint_type[j];
+    const int child = model_.joint_child[j];
+    const int parent = model_.joint_parent[j];
+    const int qd_start = model_.joint_qd_start[j];
+
+    /* all velocity in world frame */
+
+    const TTransform& p_X_pj = model_.joint_X_p[j];
+
+    // parent anchor frame in world space
+    TTransform w_X_pj = p_X_pj;
+    if (parent >= 0) {
+        const TTransform w_X_p{state_in.body_pos[parent], state_in.body_rot[parent]};
+        w_X_pj = w_X_p * p_X_pj;
+    }
+
+    // compute motion subspace S and velocity contribution across the joint
+    const int lin_axis_count = model_.joint_dof_dim[j].first;
+    const int ang_axis_count = model_.joint_dof_dim[j].second;
+
+    // compute vj = vp + Si * dot{qi} in world frame
+    const SpatialVec v_j = jcalc_motion(
+    type,
+    lin_axis_count,
+    ang_axis_count,
+    w_X_pj,
+    state_in.joint_qd,
+    qd_start);
+
+    // parent velocity / bias acceleration
+    SpatialVec v_parent = SpatialVec::Zero();
+    SpatialVec a_parent = SpatialVec::Zero();
+
+    if (parent >= 0) {
+        v_parent = body_v_s[parent];
+        a_parent = body_a_s[parent];
+    }
+
+    // body spatial velocity and bias acceleration
+    const SpatialVec v_s = v_parent + v_j;
+    const SpatialVec a_s = a_parent + spatial_cross(v_s, v_j);
+    // full forward dynamics would add + S * qdd later; here this is bias acceleration only
+
+    // current COM world transform
+    const TTransform& w_X_cc = body_q_com[child];
+
+    // model-space / rest-space spatial inertia
+    const Mat66& I_m = body_I_m[child];
+
+    // mass from linear-first spatial inertia layout: top-left = m*I3
+    const float m = I_m(0, 0);
+
+    // gravity for the world this body belongs to
+    const Vec3& g = model_.gravity_;
+
+    const Vec3 f_g = g * m;
+    const Vec3 r_com = w_X_cc.p;   // child body COM world position
+
+    SpatialVec f_g_s = SpatialVec::Zero();
+    f_g_s.segment<3>(0) = f_g;                  // force
+    f_g_s.segment<3>(3) = r_com.cross(f_g);     // torque about world origin
+
+    // transform model/local spatial inertia to current solver/world expression
+    const Mat66 I_s = transform_spatial_inertia(w_X_cc, I_m);
+
+    // bias force: I*a + v x* (I*v)
+    const SpatialVec Iv = I_s * v_s;
+    const SpatialVec f_b_s = I_s * a_s + spatial_cross_dual(v_s, Iv);
+
+    // store outputs
+    body_v_s[child] = v_s;
+    body_a_s[child] = a_s;
+    body_f_s[child] = f_b_s - f_g_s;
+    body_I_s[child] = I_s;
+}
+
+SpatialVec OrderSolver::spatial_cross(const SpatialVec &a, const SpatialVec &b) {
+    const Eigen::Vector3f v_a = a.segment<3>(0);
+    const Eigen::Vector3f w_a = a.segment<3>(3);
+
+    const Eigen::Vector3f v_b = b.segment<3>(0);
+    const Eigen::Vector3f w_b = b.segment<3>(3);
+
+    SpatialVec out = SpatialVec::Zero();
+
+    // angular part
+    out.segment<3>(3) = w_a.cross(w_b);
+
+    // linear part
+    out.segment<3>(0) = w_a.cross(v_b) + v_a.cross(w_b);
+
+    return out;
+}
+
+SpatialVec OrderSolver::spatial_cross_dual(const SpatialVec &a, const SpatialVec &b) {
+
+    const Eigen::Vector3f v_a = a.segment<3>(0);
+    const Eigen::Vector3f w_a = a.segment<3>(3);
+
+    const Eigen::Vector3f v_b = b.segment<3>(0);
+    const Eigen::Vector3f w_b = b.segment<3>(3);
+
+    SpatialVec out = SpatialVec::Zero();
+
+    // linear part
+    out.segment<3>(0) = w_a.cross(v_b);
+
+    // angular part
+    out.segment<3>(3) = w_a.cross(w_b) + v_a.cross(v_b);
+
+    return out;
+}
+
+Mat66 OrderSolver::transform_spatial_inertia(const TTransform &w_X_cc, const Mat66 &I_m) {
+    const TTransform t_inv = w_X_cc.inverse();
+
+    const Mat3 R = t_inv.q.toRotationMatrix();
+    const Mat3 S = TY::Skew(t_inv.p) * R;
+    Mat66 T = Mat66::Zero();
+
+    // Top-left block = R
+    T.block<3,3>(0,0) = R;
+
+    // Top-right block = S = skew(p) * R
+    T.block<3,3>(0,3) = S;
+
+    // Bottom-left block = 0
+    // (already zero)
+
+    // Bottom-right block = R
+    T.block<3,3>(3,3) = R;
+
+    return T.transpose() * I_m * T;
+}
+
+SpatialVec OrderSolver::transform_twist(const TTransform &X, const SpatialVec &twist_local) {
+    const Vec3 v = twist_local.segment<3>(0);
+    const Vec3 w = twist_local.segment<3>(3);
+
+    const Mat3 R = X.q.toRotationMatrix();
+    const Eigen::Vector3f p = X.p;
+
+    const Eigen::Vector3f w_out = R * w;
+    const Eigen::Vector3f v_out = R * v + p.cross(w_out);
+
+    SpatialVec out = SpatialVec::Zero();
+    out.segment<3>(0) = v_out;
+    out.segment<3>(3) = w_out;
+    return out;
+}
 

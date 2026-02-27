@@ -29,6 +29,14 @@ private:
 
     void allocate_model_aux_vars();
 
+    void allocate_state_aux_vars();
+
+    void convert_body_force_com_to_origin(State& state_in) const;
+
+    void eval_rigid_fk(State& state_in);
+
+    void eval_rigid_id(const State& state_in);
+
 private:
 
     const MModel&  model_;
@@ -70,6 +78,21 @@ private:
     std::vector<Mat66> body_I_m;
     std::vector<TTransform> body_X_com;
 
+    // ---- Featherstone solver runtime aux vars ----
+    std::vector<float> joint_qdd;
+    std::vector<float> joint_tau;
+    // std::vector<float> joint_solve_tmp;
+    std::vector<SpatialVec> joint_S_s;          // per DOF motion subspace (6D)
+
+    std::vector<TTransform> body_q_com;          // body COM pose in world
+    std::vector<Mat66> body_I_s;                // body spatial inertia in current/world/solver frame
+    std::vector<SpatialVec> body_v_s;           // body spatial velocity
+    std::vector<SpatialVec> body_a_s;           // body spatial acceleration
+    std::vector<SpatialVec> body_f_s;           // body spatial force (bias / intermediate)
+    std::vector<SpatialVec> body_ft_s;          // body spatial force total / transformed
+
+    bool state_aux_allocated_ = false;
+
     uint64_t topology_version_ = 0;
 
 private:
@@ -77,6 +100,26 @@ private:
     static Mat66 compute_spatial_inertia(const Mat3& I, float mass);
 
     static TTransform compute_com_transform(const Vec3& com);
+
+    void compute_link_transform(int j, State& state_in);
+
+    TTransform jcalc_transform(JointType type, int dof_start, int lin_axis_count, int ang_axis_count,
+                               const std::vector<float> &joint_q, int q_start) const;
+
+    SpatialVec jcalc_motion(JointType type, int lin_axis_count, int ang_axis_count, const TTransform &w_X_pj,
+                            const std::vector<float> &joint_qd, int qd_start);
+
+    static Quat quat_from_axis_angle(const Vec3& axis, float angle);
+
+    void compute_link_velocity(int j, const State& state_in);
+
+    static SpatialVec spatial_cross(const SpatialVec& a, const SpatialVec& b);
+
+    static SpatialVec spatial_cross_dual(const SpatialVec& a, const SpatialVec& b);
+
+    static Mat66 transform_spatial_inertia(const TTransform& w_X_cc, const Mat66& I_m);
+
+    static SpatialVec transform_twist(const TTransform& X, const SpatialVec& twist_local);
 
 };
 
