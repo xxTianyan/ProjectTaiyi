@@ -88,7 +88,7 @@ struct edge {
 
 
 struct TTransform {
-    Vec3 p{Vec3::Zero()};          // translation
+    Vec3 p{Vec3::Zero()};       // translation
     Quat q{Quat::Identity()};      // rotation
 
     static TTransform Identity() { return TTransform{}; }
@@ -102,7 +102,7 @@ struct TTransform {
 
     [[nodiscard]] TTransform inverse() const {
         TTransform inv;
-        inv.q = q.conjugate();
+        inv.q = q.normalized().conjugate();
         inv.p = -(inv.q * p);
         return inv;
     }
@@ -121,7 +121,7 @@ struct GeoData {
     int rigid_body_index{-1};
 
     GeoType geo_type{GeoType::NONE};
-    Vec3    geo_scale{Vec3::Ones()};   // 对 BOX：建议使用 half extents
+    Vec3    geo_scale{Vec3::Ones()};
     float  min_scale = 1.0f;
     float  thickness = 0.0f;
     float  radius_eff = 0.0f;
