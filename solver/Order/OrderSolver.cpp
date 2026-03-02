@@ -492,7 +492,6 @@ void OrderSolver::eval_rigid_tau(const State &state_in) {
             }
         }
     }
-
 }
 
 void OrderSolver::eval_rigid_jacobian() {
@@ -532,7 +531,6 @@ void OrderSolver::eval_rigid_jacobian() {
             }
         }
     }
-
 }
 
 Mat66 OrderSolver::compute_spatial_inertia(const Mat3 &I, const float mass) {
@@ -814,10 +812,8 @@ void OrderSolver::jcalc_tau(JointType type, int coord_start, int dof_start, int 
             for (int i = 0; i < 6; ++i) {
                 const int j = dof_start + i;
                 const SpatialVec& S_s = joint_S_s[j];
-
-                joint_tau[j] =
-                    -S_s.dot(f_s)
-                    + model_.joint_f0[j];
+                int bug = -S_s.dot(f_s) + model_.joint_f0[j];
+                joint_tau[j] = -S_s.dot(f_s) + model_.joint_f0[j];
             }
             return;
         }

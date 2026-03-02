@@ -1372,6 +1372,10 @@ void Builder::finalize() const {
     model_.joint_q_start.push_back(static_cast<int>(model_.num_joints));
     model_.joint_qd_start.push_back(static_cast<int>(model_.num_joint_dof));
 
+    // temporary
+    model_.joint_f0.assign(model_.num_joint_dof, 0.0f);
+
+
     model_.joint_ancestor.assign(model_.num_joints, -1);
 
     // map: child body -> joint index
