@@ -88,6 +88,13 @@ namespace TY {
         return x;
     }
 
+    inline float norm_huber(const  Vec3& v, const float delta) {
+        auto a = v.dot(v);
+        if (a <= delta * delta)
+            return a * 0.5;
+        return delta * (std::sqrt(a) - 0.5f * delta);
+    }
+
 }
 
 
