@@ -9,7 +9,7 @@
 #include "Sample.h"
 #include "Scene.h"
 #include "VBDSolver.h"
-#include "mujoco/OrderSolver.h"
+#include "Order/OrderSolver.h"
 
 class BasicJoints final : public Sample {
 
