@@ -124,9 +124,10 @@ struct MModel {
     std::vector<float> shape_collision_radius; // bounding sphere radius
     std::vector<std::pair<size_t, size_t>> shape_contact_pairs;
 
-    std::vector<float> shape_material_ke;   // shape contact elastic stiffness, [shape_count]
-    std::vector<float> shape_material_kd;  // shape contact damping stiffness
-    std::vector<float> shape_material_mu;  // shape coefficient of friction
+    std::vector<float> shape_material_ke;       // shape contact elastic stiffness, [shape_count]
+    std::vector<float> shape_material_kd;       // shape contact damping stiffness
+    std::vector<float> shape_material_kf;       // Shape contact friction stiffness [N·s/m]
+    std::vector<float> shape_material_mu;       // shape coefficient of friction
     std::vector<float> shape_contact_margin;   // per-shape margin
 
     std::vector<int> body_shapes_offsets{0}; // [num_body + 1]
