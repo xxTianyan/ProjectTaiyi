@@ -37,6 +37,8 @@ private:
 
     void eval_rigid_id(const State& state_in);
 
+    void eval_body_contact(State& state_in, const Contacts* contacts);
+
 private:
 
     const MModel&  model_;
@@ -103,7 +105,7 @@ private:
 
     void compute_link_transform(int j, State& state_in);
 
-    TTransform jcalc_transform(JointType type, int dof_start, int lin_axis_count, int ang_axis_count,
+    [[nodiscard]] TTransform jcalc_transform(JointType type, int dof_start, int lin_axis_count, int ang_axis_count,
                                const std::vector<float> &joint_q, int q_start) const;
 
     SpatialVec jcalc_motion(JointType type, int lin_axis_count, int ang_axis_count, const TTransform &w_X_pj,

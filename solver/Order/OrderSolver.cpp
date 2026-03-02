@@ -29,6 +29,11 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
          // evaluate joint inertias, motion vectors, and forces
         for (auto& f : body_f_s) { f.setZero();}
 
+        eval_rigid_id(state_in);
+
+        eval_body_contact(state_in, contacts);
+
+
 
 
     }
@@ -279,6 +284,172 @@ void OrderSolver::eval_rigid_id(const State &state_in) {
 
 }
 
+void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
+
+    if (contacts == nullptr)
+        return;
+
+    const int count = contacts->rigid_contact_count();
+
+    for (int i = 0; i < count; ++i) {
+        // read contact / shapes
+        const int shape_a = contacts->rigid_contact_shape0[i];
+        const int shape_b = contacts->rigid_contact_shape1[i];
+
+        // currently, thickness is margin in newton
+        const float thickness_a = contacts->rigid_contact_thickness0[i];
+        const float thickness_b = contacts->rigid_contact_thickness1[i];
+
+        int body_a = -1;
+        int body_b = -1;
+
+        // average material parameters
+        float ke = 0.0f;   // normal stiffness
+        float kd = 0.0f;   // damping
+        float kf = 0.0f;   // friction stiffness
+        // float ka = 0.0f;   // adhesion cutoff distance
+        float mu = 0.0f;   // friction coefficient
+        int mat_nonzero = 0;
+
+        if (shape_a >= 0) {
+            ++mat_nonzero;
+            ke += model_.shape_material_ke[shape_a];
+            kd += model_.shape_material_kd[shape_a];
+            kf += model_.shape_material_kf[shape_a];
+            /*ka += model_.shape_material_ka[shape_a];*/
+            mu += model_.shape_material_mu[shape_a];
+            body_a = model_.shape_body[shape_a];
+        }
+
+        if (shape_b >= 0) {
+            ++mat_nonzero;
+            ke += model_.shape_material_ke[shape_b];
+            kd += model_.shape_material_kd[shape_b];
+            kf += model_.shape_material_kf[shape_b];
+            /*ka += model_.shape_material_ka[shape_b];*/
+            mu += model_.shape_material_mu[shape_b];
+            body_b = model_.shape_body[shape_b];
+        }
+
+        if (mat_nonzero > 0) {
+            const float inv = 1.0f / static_cast<float>(mat_nonzero);
+            ke *= inv;
+            kd *= inv;
+            kf *= inv;
+            // ka *= inv;
+            mu *= inv;
+        }
+
+        /*// per-contact overrides, temperary no
+        if (!contacts.rigid_contact_stiffness.empty()) {
+            const float contact_ke = contacts.rigid_contact_stiffness[tid];
+            if (contact_ke > 0.0f) ke = contact_ke;
+
+            const float contact_kd = contacts.rigid_contact_damping[tid];
+            if (contact_kd > 0.0f) kd = contact_kd;
+
+            const float contact_mu_scale = contacts.rigid_contact_friction_scale[tid];
+            if (contact_mu_scale > 0.0f) mu *= contact_mu_scale;
+        }*/
+
+        // contact normal in world space
+        const Vec3 n = contacts->rigid_contact_normal[i];
+        Vec3 x_a = contacts->rigid_contact_point0[i];
+        Vec3 x_b = contacts->rigid_contact_point1[i];
+
+        Vec3 r_a = Vec3::Zero();
+        Vec3 r_b = Vec3::Zero();
+
+        if (body_a >= 0) {
+            const TTransform w_X_ba{state_in.body_pos[body_a], state_in.body_rot[body_a]};
+            const Vec3 w_x_com_a = w_X_ba.transformPoint(model_.body_local_com[body_a]);
+            x_a = w_X_ba.transformPoint(x_a) - thickness_a * n;
+            r_a = x_a - w_x_com_a;
+        }
+
+        if (body_b >= 0) {
+            const TTransform w_X_bb{state_in.body_pos[body_b], state_in.body_rot[body_b]};
+            const Vec3 w_x_com_b = w_X_bb.transformPoint(model_.body_local_com[body_b]);
+            x_b = w_X_bb.transformPoint(x_b) - thickness_b * n;
+            r_b = x_b - w_x_com_b;
+        }
+
+        // signed separation / penetration
+        const float d = n.dot(x_a - x_b);
+
+        // Contact point velocities
+        Vec3 v_pt_a{0.0f, 0.0f, 0.0f};
+        Vec3 v_pt_b{0.0f, 0.0f, 0.0f};
+
+        if (body_a >= 0) {
+            const SpatialVec& V_a = body_v_s[body_a];
+            const Vec3 v_a = V_a.segment<3>(0);
+            const Vec3 w_a = V_a.segment<3>(3);
+            v_pt_a = v_a + w_a.cross(x_a);
+        }
+
+        if (body_b >= 0) {
+            const SpatialVec& V_b = body_v_s[body_b];
+            const Vec3 v_b = V_b.segment<3>(0);
+            const Vec3 w_b = V_b.segment<3>(3);
+            v_pt_b = v_b + w_b.cross(x_b);
+        }
+
+        const Vec3 v_rel = v_pt_a - v_pt_b;
+
+        // decompose relative velocity
+        const float v_n = n.dot(v_rel);
+        const Vec3 v_t = v_rel - n * v_n;
+
+        // Normal force (penalty + damping)
+        const float f_n = ke * d;
+
+        // damping only when approaching
+        float f_d = 0.0f;
+        if (d < 0.0f && v_n < 0.0f) {
+            f_d = kd * v_n;
+        }
+
+        // Smooth Coulomb friction
+        Vec3 f_t{0.0f, 0.0f, 0.0f};
+
+        if (d < 0.0f) {
+            const float v_s = TY::norm_huber(v_t, friction_smoothing);
+            if (v_s > 0.0f) {
+                const Vec3 dir = v_t / v_s;
+
+                // normal reaction magnitude (positive clamp value)
+                const float normal_mag = -(f_n + f_d);
+
+                if (normal_mag > 0.0f) {
+                    const float viscous_mag = kf * v_s;
+                    const float coulomb_cap = mu * normal_mag;
+                    const float friction_mag = std::min(viscous_mag, coulomb_cap);
+
+                    // oppose tangential motion
+                    f_t = -dir * friction_mag;
+                }
+            }
+        }
+
+        // total contact force on body A
+        const Vec3 f_total = n * (f_n + f_d) + f_t;
+
+        if (body_a >= 0) {
+            state_in.body_force[body_a] += f_total;
+            state_in.body_torque[body_a] += r_a.cross(f_total);
+        }
+
+        if (body_b >= 0) {
+            state_in.body_force[body_b] -= f_total;
+            state_in.body_torque[body_b] -= r_b.cross(f_total);
+        }
+
+
+    }
+
+}
+
 Mat66 OrderSolver::compute_spatial_inertia(const Mat3 &I, const float mass) {
     Mat66 out = Mat66::Zero();
     // top-left = m * I3
@@ -410,10 +581,10 @@ TTransform OrderSolver::jcalc_transform(const JointType type, const int dof_star
     }
 }
 
-SpatialVec OrderSolver::jcalc_motion(JointType type, int lin_axis_count, int ang_axis_count, const TTransform &w_X_pj,
-                                     const std::vector<float> &joint_qd, int qd_start) {
+SpatialVec OrderSolver::jcalc_motion(const JointType type, const int lin_axis_count, const int ang_axis_count,
+                                     const TTransform &w_X_pj, const std::vector<float> &joint_qd, const int qd_start) {
 
-    const Vec3 zero_v3{0.0f, 0.0f, 0.0f};
+    // const Vec3 zero_v3{0.0f, 0.0f, 0.0f};
 
     switch (type) {
     case JointType::PRISMATIC: {
