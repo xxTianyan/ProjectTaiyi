@@ -33,8 +33,10 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
 
         eval_body_contact(state_in, contacts);
 
+        for (auto& f : body_ft_s) { f.setZero();}
+        for (auto& t : joint_tau) { t = 0.0f;}
 
-
+        eval_rigid_tau(state_in);
 
     }
 
@@ -450,6 +452,89 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
 
 }
 
+void OrderSolver::eval_rigid_tau(const State &state_in) {
+
+    for (size_t art = 0; art < model_.num_articulation; ++art) {
+        const int start = model_.articulation_start[art];
+        const int end = model_.articulation_start[art + 1];
+
+        const int count = end - start;
+
+        for (int offset = 0; offset < count; ++offset) {
+            const int j = end - offset - 1;
+
+            const JointType type = model_.joint_type[j];
+            const int parent = model_.joint_parent[j];
+            const int child  = model_.joint_child[j];
+
+            const int dof_start   = model_.joint_qd_start[j];
+            const int coord_start = model_.joint_q_start[j];
+
+            const int lin_axis_count = model_.joint_dof_dim[j].first;
+            const int ang_axis_count = model_.joint_dof_dim[j].second;
+
+            // total force on this child subtree
+            const SpatialVec& f_b_s = body_f_s[child];     // bias force
+            const SpatialVec& f_t_s = body_ft_s[child];    // accumulated child-subtree force
+
+            SpatialVec f_ext = SpatialVec::Zero();
+            f_ext.segment<3>(0) = state_in.body_force[child];
+            f_ext.segment<3>(3) = state_in.body_torque[child];
+
+            const SpatialVec f_s = f_b_s + f_t_s + f_ext;
+
+            // project to joint-space and add derives/limits/etc
+            jcalc_tau(type, coord_start, dof_start, lin_axis_count, ang_axis_count, state_in.joint_q, state_in.joint_qd, f_s);
+
+            // propagate subtree force to parent
+            if (parent >= 0) {
+                body_ft_s[parent] += f_s;
+            }
+        }
+    }
+
+}
+
+void OrderSolver::eval_rigid_jacobian() {
+    std::ranges::fill(J, 0.0f);
+    for (size_t art = 0; art < model_.num_articulation; ++art) {
+        const int joint_start = model_.articulation_start[art];
+        const int joint_end =model_.articulation_start[art + 1];
+
+        const int joint_count = joint_end - joint_start;
+
+        const int J_offset = articulation_J_start[art];
+
+        const int art_dof_start = model_.joint_qd_start[joint_start];
+        const int art_dof_end   = model_.joint_qd_start[joint_end];
+        const int art_dof_count = art_dof_end - art_dof_start;
+
+        for (int i = 0; i < joint_count; ++i) {
+            const int row_start = i * 6;
+
+            int j = joint_start + i;
+            while (j != -1) {
+                const int joint_dof_start = model_.joint_qd_start[j];
+                const int joint_dof_end   = model_.joint_qd_start[j + 1];
+                const int joint_dof_count = joint_dof_end - joint_dof_start;
+
+                for (int dof = 0; dof < joint_dof_count; ++dof) {
+                    const int col = (joint_dof_start - art_dof_start) + dof;
+                    const SpatialVec& S = joint_S_s[joint_dof_start + dof];
+
+                    for (int k = 0; k < 6; ++k) {
+                        const int dense_index = (row_start + k) * art_dof_count + col;
+                        J[J_offset + dense_index] = S[k];
+                    }
+                }
+
+                j = model_.joint_ancestor[j];
+            }
+        }
+    }
+
+}
+
 Mat66 OrderSolver::compute_spatial_inertia(const Mat3 &I, const float mass) {
     Mat66 out = Mat66::Zero();
     // top-left = m * I3
@@ -706,6 +791,89 @@ SpatialVec OrderSolver::jcalc_motion(const JointType type, const int lin_axis_co
 
 }
 
+void OrderSolver::jcalc_tau(JointType type, int coord_start, int dof_start, int lin_axis_count, int ang_axis_count,
+    const std::vector<float> &joint_q, const std::vector<float> &joint_qd, const SpatialVec &f_s) {
+
+    switch (type) {
+        case JointType::BALL: {
+            // 3 angular dofs
+            for (int i = 0; i < 3; ++i) {
+                const int j = dof_start + i;
+                const SpatialVec& S_s = joint_S_s[j];
+
+                joint_tau[j] =
+                    -S_s.dot(f_s)
+                    + model_.joint_f0[j];
+            }
+            return;
+        }
+
+        case JointType::FREE:
+        case JointType::DISTANCE: {
+            // 6 dofs
+            for (int i = 0; i < 6; ++i) {
+                const int j = dof_start + i;
+                const SpatialVec& S_s = joint_S_s[j];
+
+                joint_tau[j] =
+                    -S_s.dot(f_s)
+                    + model_.joint_f0[j];
+            }
+            return;
+        }
+
+        case JointType::PRISMATIC:
+        case JointType::REVOLUTE:
+        case JointType::D6: {
+            const int axis_count = lin_axis_count + ang_axis_count;
+
+            for (int i = 0; i < axis_count; ++i) {
+                const int j = dof_start + i;
+
+                const SpatialVec& S_s = joint_S_s[j];
+
+                const float q = joint_q[coord_start + i];
+                const float qd = joint_qd[j];
+
+                const float lower     = model_.joint_limit_lower[j];
+                const float upper     = model_.joint_limit_upper[j];
+                const float limit_ke  = model_.joint_limit_ke[j];
+                const float limit_kd  = model_.joint_limit_kd[j];
+                const float target_ke = model_.joint_target_ke[j];
+                const float target_kd = model_.joint_target_kd[j];
+
+                const float target_pos = model_.joint_target_pos[j];
+                const float target_vel = model_.joint_target_vel[j];
+
+                const float drive_f = joint_force(
+                    q, qd,
+                    target_pos, target_vel,
+                    target_ke, target_kd,
+                    lower, upper,
+                    limit_ke, limit_kd
+                );
+
+                const float t =
+                    -S_s.dot(f_s)
+                    + drive_f
+                    + model_.joint_f0[j];
+
+                joint_tau[j] = t;
+            }
+            return;
+
+        }
+
+        case JointType::FIXED:
+        default: {
+            return;
+        }
+    }
+
+
+
+}
+
 Quat OrderSolver::quat_from_axis_angle(const Vec3 &axis, const float angle) {
     const float half = 0.5f * angle;
     const float s = std::sin(half);
@@ -869,5 +1037,32 @@ SpatialVec OrderSolver::transform_twist(const TTransform &X, const SpatialVec &t
     out.segment<3>(0) = v_out;
     out.segment<3>(3) = w_out;
     return out;
+}
+
+float OrderSolver::joint_force(const float q, const float qd, const float joint_target_pos,
+                               const float joint_target_vel, const float target_ke, const float target_kd,
+                               const float limit_lower, const float limit_upper, const float limit_ke,
+                               const float limit_kd) {
+    float limit_f = 0.0f;
+    float damping_f = 0.0f;
+    float target_f = 0.0f;
+
+    // PD target control (active only when within limits)
+    target_f = target_ke * (joint_target_pos - q)
+             + target_kd * (joint_target_vel - qd);
+
+    // If limit violated: apply limit restoration force and disable target control
+    if (q < limit_lower) {
+        limit_f = limit_ke * (limit_lower - q);
+        damping_f = -limit_kd * qd;
+        target_f = 0.0f;
+    }
+    else if (q > limit_upper) {
+        limit_f = limit_ke * (limit_upper - q);
+        damping_f = -limit_kd * qd;
+        target_f = 0.0f;
+    }
+
+    return limit_f + damping_f + target_f;
 }
 

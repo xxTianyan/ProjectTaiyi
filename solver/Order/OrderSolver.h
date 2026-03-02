@@ -39,6 +39,10 @@ private:
 
     void eval_body_contact(State& state_in, const Contacts* contacts);
 
+    void eval_rigid_tau(const State& state_in);
+
+    void eval_rigid_jacobian();
+
 private:
 
     const MModel&  model_;
@@ -83,6 +87,7 @@ private:
     // ---- Featherstone solver runtime aux vars ----
     std::vector<float> joint_qdd;
     std::vector<float> joint_tau;
+
     // std::vector<float> joint_solve_tmp;
     std::vector<SpatialVec> joint_S_s;          // per DOF motion subspace (6D)
 
@@ -111,6 +116,9 @@ private:
     SpatialVec jcalc_motion(JointType type, int lin_axis_count, int ang_axis_count, const TTransform &w_X_pj,
                             const std::vector<float> &joint_qd, int qd_start);
 
+    void jcalc_tau(JointType type, int coord_start, int dof_start, int lin_axis_count, int ang_axis_count,
+                   const std::vector<float> &joint_q, const std::vector<float> &joint_qd, const SpatialVec &f_s);
+
     static Quat quat_from_axis_angle(const Vec3& axis, float angle);
 
     void compute_link_velocity(int j, const State& state_in);
@@ -122,6 +130,9 @@ private:
     static Mat66 transform_spatial_inertia(const TTransform& w_X_cc, const Mat66& I_m);
 
     static SpatialVec transform_twist(const TTransform& X, const SpatialVec& twist_local);
+
+    static float joint_force(float q, float qd, float joint_target_pos, float joint_target_vel, float target_ke,
+                             float target_kd, float limit_lower, float limit_upper, float limit_ke, float limit_kd);
 
 };
 
