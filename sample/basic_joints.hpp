@@ -59,16 +59,30 @@ public:
             TTransform::Identity(),
             TTransform(Vec3(0.0,0.7,0.0), Quat::Identity()));
 
-        builder.add_articulation(std::array{joint_free, joint_revolute}, "sphere_n_capsule");
+        auto art_0 = builder.add_articulation(std::array{joint_free, joint_revolute}, "sphere_n_capsule");
         builder.finalize();
 
         scene_ = std::make_unique<Scene>(std::move(model));
         dbg_ = std::make_unique<SolverDebugger>();
         solver_ = std::make_unique<OrderSolver>(scene_->model_);
-
     }
 
 
+    void BindShaders(AppContext &ctx) override {
+        ctx.shader_manager->LoadShaderProgram("rubber", "../resources/shaders/rubber.vs", "../resources/shaders/rubber.fs");
+        const auto rubber_shader = ctx.shader_manager->Get("rubber")->shader;
+        ShaderManager::BindMatrices(rubber_shader);
+        ShaderManager::SetCommonShaderParams(rubber_shader);
+        rubber_shader.locs[SHADER_LOC_MAP_DIFFUSE] = GetShaderLocation(rubber_shader, "texture0");
+
+        auto sphere_model = renderHelper_.GetRLModel_r(sphere_);
+        sphere_model.materials[0].shader = rubber_shader;
+        sphere_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
+
+        auto capsule_model = renderHelper_.GetRLModel_r(capsule_);
+        capsule_model.materials[0].shader = rubber_shader;
+        capsule_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
+    }
 
 private:
     size_t sphere_{};
