@@ -109,7 +109,7 @@ private:
                                                                 const Vec3 &contact_point_b_local,
                                                                 const Vec3 &contact_normal, float penetration_depth,
                                                                 float contact_ke, float contact_kd, float friction_mu,
-                                                                float friction_epsilon, float dt);
+                                                                float friction_epsilon, float dt) const;
 
     static void compute_projected_isotropic_friction(float friction_mu, float normal_load, const Vec3 &n_unit,
                                                      const Vec3 &slip_u, float eps_u, Vec3 &force_out, Mat3 &H_out);

@@ -464,7 +464,7 @@ void VBDSolver::accumulate_rigid_body_force_hessian(const size_t body_idx, const
 VBDSolver::RigidContactEvalResult VBDSolver::evaluate_rigid_contact_from_collision(
     int body0, int body1, const Vec3 &body0_pos, const Vec3 &body1_pos, const Quat &body0_q, const Quat &body1_q,
     const Vec3 &contact_point_a_local, const Vec3 &contact_point_b_local, const Vec3 &contact_normal,
-    float penetration_depth, float contact_ke, float contact_kd, float friction_mu, float friction_epsilon, float dt) {
+    float penetration_depth, float contact_ke, float contact_kd, float friction_mu, float friction_epsilon, float dt) const {
 
     Vec3 zero_vec = Vec3::Zero();
     Mat3 zero_mat = Mat3::Zero();
