@@ -83,7 +83,7 @@ add_executable(Taiyi sample/main.cpp
         solver/VBD/VBDRigid_Kernel.cpp
         sim/Control.h
         sample/basic_joints.hpp
-        solver/mujoco/OrderSolver.cpp)
+        solver/Order/OrderSolver.cpp)
 
 target_include_directories(Taiyi
         PRIVATE
