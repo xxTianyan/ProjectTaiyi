@@ -147,6 +147,8 @@ struct MModel {
 
     std::vector<int> joint_parent;      // Joint parent body indices
     std::vector<int> joint_child;       // Joint child body indices
+    std::vector<int> joint_ancestor;    // Maps from joint index to the index of the joint that has the current joint
+                                        // parent body as child (-1 if no such joint ancestor exists)
     std::vector<int> joint_articulation;   // Joint articulation index (-1 if not in any articulation)
 
     std::vector<TTransform> joint_X_p;  // Joint transform in parent frame

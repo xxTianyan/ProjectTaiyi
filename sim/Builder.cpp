@@ -1371,6 +1371,30 @@ void Builder::finalize() const {
     model_.articulation_start.push_back(static_cast<int>(model_.num_articulation));
     model_.joint_q_start.push_back(static_cast<int>(model_.num_joints));
     model_.joint_qd_start.push_back(static_cast<int>(model_.num_joint_dof));
+
+    model_.joint_ancestor.assign(model_.num_joints, -1);
+
+    // map: child body -> joint index
+    std::unordered_map<int, int> child_to_joint;
+    child_to_joint.reserve(model_.num_joints);
+
+    for (int j = 0; j < static_cast<int>(model_.num_joints); ++j) {
+        const int child = model_.joint_child[j];
+        child_to_joint[child] = j;
+    }
+
+    // for each joint, find the joint whose child is this joint's parent body
+    for (int j = 0; j < static_cast<int>(model_.num_joints); ++j) {
+        const int parent_body = model_.joint_parent[j];
+
+        auto it = child_to_joint.find(parent_body);
+        if (it != child_to_joint.end()) {
+            model_.joint_ancestor[j] = it->second;
+        } else {
+            model_.joint_ancestor[j] = -1;
+        }
+    }
+
 }
 
 void Builder::PrepareCapacity(const size_t num) const {
