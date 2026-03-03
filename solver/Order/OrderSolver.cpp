@@ -93,7 +93,7 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
     }
 
     // solve for qdd
-    for (size_t batch = 0; batch < articulation_H_start.size(); batch++) {
+    /*for (size_t batch = 0; batch < articulation_H_start.size(); batch++) {
         const int n = articulation_H_rows[batch];
         const int L_start = articulation_H_start[batch];
         const int b_start = articulation_dof_start[batch];
@@ -103,7 +103,7 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
     if (model_.num_joints > 0) {
         integrate_generalized_joints(state_in, state_out, dt);
         eval_fk_with_velocity_conversion(state_out);
-    }
+    }*/
 
 }
 
@@ -947,6 +947,9 @@ void OrderSolver::compute_link_transform(const int i, State &state_in) {
     // world transform of child joint anchor
     const TTransform w_X_cj = w_X_pj * X_j;
 
+    // debug
+    const TTransform c_X_cj_inv = c_X_cj.inverse();
+
     // world transform of child body frame
     const TTransform w_X_c = w_X_cj * c_X_cj.inverse();
 
@@ -1228,7 +1231,7 @@ Quat OrderSolver::quat_from_axis_angle(const Vec3 &axis, const float angle) {
     const float half = 0.5f * angle;
     const float s = std::sin(half);
     const float c = std::cos(half);
-    auto result = Quat{axis.x() * s,axis.y() * s,axis.z() * s,c};
+    auto result = Quat{c, axis.x() * s,axis.y() * s,axis.z() * s};
     result.normalize();
     return result;
 }
