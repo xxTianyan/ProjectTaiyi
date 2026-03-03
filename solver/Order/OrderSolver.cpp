@@ -6,6 +6,9 @@
 #include "Math.hpp"
 
 void OrderSolver::clear() {
+
+    body_f.assign(model_.num_bodies, SpatialVec::Zero());
+
     if (topology_version_ != model_.topology_version) {
         topology_version_ = model_.topology_version;
         compute_articulation_indices();
@@ -13,7 +16,7 @@ void OrderSolver::clear() {
     }
 }
 
-void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contacts, float dt) {
+void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contacts, const float dt) {
 
     clear();
 
@@ -39,7 +42,13 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
         eval_rigid_tau(state_in);
 
         {
-            /*eval_rigid_jacobian();
+            // if self._step % self.update_mass_matrix_interval == 0:
+
+            // build J
+            eval_rigid_jacobian();
+
+            // build M
+            eval_rigid_mass();
 
             // form P = M*J
             for (size_t batch = 0; batch < articulation_M_rows.size(); batch++) {
@@ -79,12 +88,12 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
                 const int A_start = articulation_H_start[batch];
                 const int R_start = articulation_dof_start[batch];
                 dense_cholesky(n, H, model_.joint_armature, A_start, R_start, L);
-            }*/
+            }
         }
     }
 
     // solve for qdd
-    /*for (size_t batch = 0; batch < articulation_H_start.size(); batch++) {
+    for (size_t batch = 0; batch < articulation_H_start.size(); batch++) {
         const int n = articulation_H_rows[batch];
         const int L_start = articulation_H_start[batch];
         const int b_start = articulation_dof_start[batch];
@@ -93,8 +102,8 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
 
     if (model_.num_joints > 0) {
         integrate_generalized_joints(state_in, state_out, dt);
-        eval_fk_with_velocity_conversion(...);
-    }*/
+        eval_fk_with_velocity_conversion(state_out);
+    }
 
 }
 
@@ -290,12 +299,12 @@ void OrderSolver::allocate_state_aux_vars() {
     state_aux_allocated_ = true;
 }
 
-void OrderSolver::convert_body_force_com_to_origin(State& state_in) const {
+void OrderSolver::convert_body_force_com_to_origin(const State& state_in) {
     const size_t n = model_.num_bodies;
     const auto& body_pos = state_in.body_pos;
     const auto& body_rot = state_in.body_rot;
-    auto& body_force = state_in.body_force;
-    auto& body_torque = state_in.body_torque;
+    const auto& body_force = state_in.body_force;
+    const auto& body_torque = state_in.body_torque;
 
     for (size_t i = 0; i < n; ++i) {
         const auto& p = body_pos[i];
@@ -315,8 +324,8 @@ void OrderSolver::convert_body_force_com_to_origin(State& state_in) const {
         // shift torque from COM to world origin
         const Vec3 tau_world_origin = tau_com + r_com.cross(f);
 
-        body_force[i] = -f;
-        body_torque[i] = -tau_world_origin;
+        body_f[i].segment<3>(0) = -f;
+        body_f[i].segment<3>(3) = -tau_world_origin;
     }
 }
 
@@ -363,7 +372,7 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
         int body_b = -1;
 
         // average material parameters
-        float ke = 0.0f;   // normal stiffness
+        float ke = 1e7f;   // normal stiffness, temoporary
         float kd = 0.0f;   // damping
         float kf = 0.0f;   // friction stiffness
         // float ka = 0.0f;   // adhesion cutoff distance
@@ -412,7 +421,7 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
         }*/
 
         // contact normal in world space
-        const Vec3 n = contacts->rigid_contact_normal[i];
+        const Vec3 n = -contacts->rigid_contact_normal[i];
         Vec3 x_a = contacts->rigid_contact_point0[i];
         Vec3 x_b = contacts->rigid_contact_point1[i];
 
@@ -429,12 +438,15 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
         if (body_b >= 0) {
             const TTransform w_X_bb{state_in.body_pos[body_b], state_in.body_rot[body_b]};
             const Vec3 w_x_com_b = w_X_bb.transformPoint(model_.body_local_com[body_b]);
-            x_b = w_X_bb.transformPoint(x_b) - thickness_b * n;
+            x_b = w_X_bb.transformPoint(x_b) + thickness_b * n;
             r_b = x_b - w_x_com_b;
         }
 
         // signed separation / penetration
         const float d = n.dot(x_a - x_b);
+
+        if (d >= 0.0f)
+            continue;
 
         // Contact point velocities
         Vec3 v_pt_a{0.0f, 0.0f, 0.0f};
@@ -491,22 +503,20 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
             }
         }
 
-        // total contact force on body A
+        // total contact force on bodies
         const Vec3 f_total = n * (f_n + f_d) + f_t;
 
+        // add force in world frame
         if (body_a >= 0) {
-            state_in.body_force[body_a] += f_total;
-            state_in.body_torque[body_a] += r_a.cross(f_total);
+            body_f[body_a].segment<3>(0) += f_total;
+            body_f[body_a].segment<3>(3) += x_a.cross(f_total);
         }
 
         if (body_b >= 0) {
-            state_in.body_force[body_b] -= f_total;
-            state_in.body_torque[body_b] -= r_b.cross(f_total);
+            body_f[body_b].segment<3>(0) -= f_total;
+            body_f[body_b].segment<3>(3) -= x_b.cross(f_total);
         }
-
-
     }
-
 }
 
 void OrderSolver::eval_rigid_tau(const State &state_in) {
@@ -534,9 +544,9 @@ void OrderSolver::eval_rigid_tau(const State &state_in) {
             const SpatialVec& f_b_s = body_f_s[child];     // bias force
             const SpatialVec& f_t_s = body_ft_s[child];    // accumulated child-subtree force
 
-            SpatialVec f_ext = SpatialVec::Zero();
-            f_ext.segment<3>(0) = state_in.body_force[child];
-            f_ext.segment<3>(3) = state_in.body_torque[child];
+            SpatialVec f_ext = body_f[child];
+            /*f_ext.segment<3>(0) = state_in.body_force[child];
+            f_ext.segment<3>(3) = state_in.body_torque[child];*/
 
             const SpatialVec f_s = f_b_s + f_t_s + f_ext;
 
@@ -595,10 +605,7 @@ void OrderSolver::eval_rigid_mass() {
 
     for (size_t art = 0; art < model_.num_articulation; ++art) {
         const int joint_start = model_.articulation_start[art];
-        const int joint_end =
-            (art + 1 < model_.num_articulation)
-                ? model_.articulation_start[art + 1]
-                : static_cast<int>(model_.num_joints);
+        const int joint_end = model_.articulation_start[art + 1];
 
         const int joint_count = joint_end - joint_start;
         const int M_offset = articulation_M_start[art];
@@ -624,7 +631,7 @@ void OrderSolver::eval_rigid_mass() {
 
 }
 
-void OrderSolver::integrate_generalized_joints(const State &state_in, State &state_out, const float dt) {
+void OrderSolver::integrate_generalized_joints(const State &state_in, State &state_out, const float dt) const {
 
     for (size_t j = 0; j < model_.num_joints; ++j) {
         const JointType type = model_.joint_type[j];
@@ -650,15 +657,14 @@ void OrderSolver::integrate_generalized_joints(const State &state_in, State &sta
 
 }
 
-void OrderSolver::eval_fk_with_velocity_conversion(const std::vector<float> &joint_q,
-    const std::vector<float> &joint_qd, State &state) const {
+void OrderSolver::eval_fk_with_velocity_conversion( State &state_out) const {
+
+    const auto& joint_q = state_out.joint_q;
+    const auto& joint_qd = state_out.joint_qd;
 
     for (size_t art = 0; art < model_.num_articulation; ++art) {
         const int joint_start = model_.articulation_start[art];
-        const int joint_end =
-            (art + 1 < model_.num_articulation)
-                ? model_.articulation_start[art + 1]
-                : static_cast<int>(model_.num_joints);
+        const int joint_end =model_.articulation_start[art + 1];
 
         for (int i = joint_start; i < joint_end; ++i) {
             const int parent = model_.joint_parent[i];
@@ -676,12 +682,12 @@ void OrderSolver::eval_fk_with_velocity_conversion(const std::vector<float> &joi
             Vec3 w_parent{0.0f, 0.0f, 0.0f};
 
             if (parent >= 0) {
-                const TTransform w_X_p{state.body_pos[parent], state.body_rot[parent]};
+                const TTransform w_X_p{state_out.body_pos[parent], state_out.body_rot[parent]};
                 w_X_pj = w_X_p * p_X_pj;
 
                 // parent body stores COM velocity in state
-                const Vec3& v_com_parent = state.body_lin_vel[parent];
-                w_parent = state.body_ang_vel[parent];
+                const Vec3& v_com_parent = state_out.body_lin_vel[parent];
+                w_parent = state_out.body_ang_vel[parent];
 
                 const Vec3 x_anchor = w_X_pj.p;
                 const Vec3 x_com_parent = w_X_p.transformPoint(model_.body_local_com[parent]);
@@ -861,8 +867,8 @@ void OrderSolver::eval_fk_with_velocity_conversion(const std::vector<float> &joi
             const Vec3 w_child = w_parent + w_j_world;
 
             // write transform
-            state.body_pos[child] = w_X_c.p;
-            state.body_rot[child] = w_X_c.q;
+            state_out.body_pos[child] = w_X_c.p;
+            state_out.body_rot[child] = w_X_c.q;
 
             // --------------------------------------------------
             // velocity conversion
@@ -873,12 +879,12 @@ void OrderSolver::eval_fk_with_velocity_conversion(const std::vector<float> &joi
                 const Vec3 x_com_world = w_X_c.transformPoint(model_.body_local_com[child]);
                 const Vec3 v_com = v_origin_child + w_child.cross(x_com_world);
 
-                state.body_lin_vel[child] = v_com;
-                state.body_ang_vel[child] = w_child;
+                state_out.body_lin_vel[child] = v_com;
+                state_out.body_ang_vel[child] = w_child;
             } else {
                 // For the other joint types, store the propagated world velocity directly
-                state.body_lin_vel[child] = v_origin_child;
-                state.body_ang_vel[child] = w_child;
+                state_out.body_lin_vel[child] = v_origin_child;
+                state_out.body_ang_vel[child] = w_child;
             }
         }
     }
@@ -1526,7 +1532,7 @@ void OrderSolver::solve_cholesky_system(const int n, const int L_start, const in
 }
 
 void OrderSolver::jcalc_integrate(JointType type, const std::vector<float> &joint_q, const std::vector<float> &joint_qd,
-    const std::vector<float> &joint_qdd, int coord_start, int dof_start, int lin_axis_count, int ang_axis_count,
+    const std::vector<float> &joint_qdd_, int coord_start, int dof_start, int lin_axis_count, int ang_axis_count,
     float dt, std::vector<float> &joint_q_new, std::vector<float> &joint_qd_new) {
 
     if (type == JointType::FIXED) {
@@ -1537,7 +1543,7 @@ void OrderSolver::jcalc_integrate(JointType type, const std::vector<float> &join
     // PRISMATIC / REVOLUTE: single scalar dof
     // --------------------------------------------------
     if (type == JointType::PRISMATIC || type == JointType::REVOLUTE) {
-        const float qdd = joint_qdd[dof_start];
+        const float qdd = joint_qdd_[dof_start];
         const float qd  = joint_qd[dof_start];
         const float q   = joint_q[coord_start];
 
@@ -1554,9 +1560,9 @@ void OrderSolver::jcalc_integrate(JointType type, const std::vector<float> &join
     // --------------------------------------------------
     if (type == JointType::BALL) {
         const Vec3 alpha{
-            joint_qdd[dof_start + 0],
-            joint_qdd[dof_start + 1],
-            joint_qdd[dof_start + 2]
+            joint_qdd_[dof_start + 0],
+            joint_qdd_[dof_start + 1],
+            joint_qdd_[dof_start + 2]
         };
 
         const Vec3 w{
@@ -1602,15 +1608,15 @@ void OrderSolver::jcalc_integrate(JointType type, const std::vector<float> &join
     // --------------------------------------------------
     if (type == JointType::FREE || type == JointType::DISTANCE) {
         const Vec3 a{
-            joint_qdd[dof_start + 0],
-            joint_qdd[dof_start + 1],
-            joint_qdd[dof_start + 2]
+            joint_qdd_[dof_start + 0],
+            joint_qdd_[dof_start + 1],
+            joint_qdd_[dof_start + 2]
         };
 
         const Vec3 alpha{
-            joint_qdd[dof_start + 3],
-            joint_qdd[dof_start + 4],
-            joint_qdd[dof_start + 5]
+            joint_qdd_[dof_start + 3],
+            joint_qdd_[dof_start + 4],
+            joint_qdd_[dof_start + 5]
         };
 
         Vec3 v{
@@ -1687,7 +1693,7 @@ void OrderSolver::jcalc_integrate(JointType type, const std::vector<float> &join
         const int axis_count = lin_axis_count + ang_axis_count;
 
         for (int i = 0; i < axis_count; ++i) {
-            const float qdd = joint_qdd[dof_start + i];
+            const float qdd = joint_qdd_[dof_start + i];
             const float qd  = joint_qd[dof_start + i];
             const float q   = joint_q[coord_start + i];
 

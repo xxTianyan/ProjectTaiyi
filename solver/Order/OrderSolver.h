@@ -31,7 +31,7 @@ private:
 
     void allocate_state_aux_vars();
 
-    void convert_body_force_com_to_origin(State& state_in) const;
+    void convert_body_force_com_to_origin(const State& state_in);
 
     void eval_rigid_fk(State& state_in);
 
@@ -45,10 +45,9 @@ private:
 
     void eval_rigid_mass();
 
-    void integrate_generalized_joints(const State& state_in, State& state_out, float dt);
+    void integrate_generalized_joints(const State& state_in, State& state_out, float dt) const;
 
-    void eval_fk_with_velocity_conversion(const std::vector<float> &joint_q, const std::vector<float> &joint_qd,
-                                          State &state) const;
+    void eval_fk_with_velocity_conversion(State &state_out) const;
 
 private:
 
@@ -88,6 +87,7 @@ private:
     std::vector<float> L;
 
     //  model-dependent static caches
+    std::vector<SpatialVec> body_f;
     std::vector<Mat66> body_I_m;
     std::vector<TTransform> body_X_com;
 
@@ -153,10 +153,10 @@ private:
         return row * cols + col;
     }
 
-    void jcalc_integrate(JointType type, const std::vector<float> &joint_q, const std::vector<float> &joint_qd,
-                         const std::vector<float> &joint_qdd, int coord_start, int dof_start, int lin_axis_count,
-                         int ang_axis_count, float dt, std::vector<float> &joint_q_new,
-                         std::vector<float> &joint_qd_new);
+    static void jcalc_integrate(JointType type, const std::vector<float> &joint_q, const std::vector<float> &joint_qd,
+                                const std::vector<float> &joint_qdd_, int coord_start, int dof_start, int lin_axis_count,
+                                int ang_axis_count, float dt, std::vector<float> &joint_q_new,
+                                std::vector<float> &joint_qd_new);
 
 
 };

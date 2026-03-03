@@ -36,15 +36,15 @@ public:
         Builder builder(model);
         shape_ground_plane_ = builder.add_ground_plane();
 
-        sphere_ = builder.add_rigidbody("sphere1", Vec3{0.0f,5.0f,0.0f}, Quat{1.0f,0.0f,0.0f,0.0f});
-        auto sphere_shape = builder.add_shape_sphere(sphere_, 0.4);
+        sphere_ = builder.add_rigidbody("sphere1", Vec3{0.0f,7.0f,0.0f}, Quat{1.0f,0.0f,0.0f,0.0f});
+        auto sphere_shape = builder.add_shape_sphere(sphere_, 0.4, Vec3::Zero(), Quat::Identity());
 
-        capsule_ = builder.add_rigidbody("capsule1", Vec3{0.0f,3.9f,0.0f}, Quat{1.0,0.0,0.0,0.0});
-        auto capsule_shape = builder.add_shape_capsule(capsule_, 0.2, 0.5);
+        /*capsule_ = builder.add_rigidbody("capsule1", Vec3{0.0f,3.9f,0.0f}, Quat{1.0,0.0,0.0,0.0});
+        auto capsule_shape = builder.add_shape_capsule(capsule_, 0.2, 0.5);*/
 
         // add collide pair. temporary
         model.shape_contact_pairs.emplace_back(sphere_shape, shape_ground_plane_);
-        model.shape_contact_pairs.emplace_back(capsule_shape, shape_ground_plane_);
+        // model.shape_contact_pairs.emplace_back(capsule_shape, shape_ground_plane_);
 
         const auto joint_free = builder.add_joint_free(
             sphere_,
@@ -52,14 +52,14 @@ public:
             TTransform::Identity(),
             "free_joint");
 
-        const auto joint_revolute = builder.add_joint_revolute(
+        /*const auto joint_revolute = builder.add_joint_revolute(
             static_cast<int>(sphere_),
             static_cast<int>(capsule_),
             Vec3::UnitX(),
             TTransform(Vec3(0.0, 0.4, 0.0), Quat::Identity()),
-            TTransform(Vec3(0.0,0.7,0.0), Quat::Identity()));
+            TTransform(Vec3(0.0,0.7,0.0), Quat::Identity()));*/
 
-        auto art_0 = builder.add_articulation(std::array{joint_free, joint_revolute}, "sphere_n_capsule");
+        auto art_0 = builder.add_articulation(std::array{joint_free}, "sphere_n_capsule");
 
         auto& revolute_degree = model.joint_q0.back();
         revolute_degree = 3.1415926f * 0.5f;
@@ -83,14 +83,14 @@ public:
         sphere_model.materials[0].shader = rubber_shader;
         sphere_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
 
-        auto capsule_model = renderHelper_.GetRLModel_r(capsule_);
+        /*auto capsule_model = renderHelper_.GetRLModel_r(capsule_);
         capsule_model.materials[0].shader = rubber_shader;
-        capsule_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
+        capsule_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};*/
     }
 
 private:
     size_t sphere_{};
-    size_t capsule_{};
+    // size_t capsule_{};
     size_t shape_ground_plane_{};
 };
 
