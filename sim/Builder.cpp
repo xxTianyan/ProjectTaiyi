@@ -1273,6 +1273,15 @@ int Builder::add_joint_free(const int child, const TTransform &parent_xform, con
     return joint_id;
 }
 
+int Builder::add_joint_fixed(int parent, int child, const TTransform &parent_xform, const TTransform &child_xform,
+    std::string key, bool collision_filter_parent, bool enabled) {
+
+    const int joint_index = add_joint(JointType::FIXED, parent, child, {}, {}, parent_xform, child_xform, key,
+                                collision_filter_parent, enabled);
+
+    return joint_index;
+}
+
 int Builder::add_articulation(const std::span<const int> joints, std::string key) const {
 
     if (joints.empty()) {
