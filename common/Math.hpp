@@ -95,6 +95,10 @@ namespace TY {
         return delta * (std::sqrt(a) - 0.5f * delta);
     }
 
+    static  Quat quat_from_angular_velocity(const Vec3& w) {
+        return Quat{w.z(), w.x(), w.y(), 0.0f};
+    }
+
 }
 
 

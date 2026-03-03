@@ -36,10 +36,10 @@ public:
         Builder builder(model);
         shape_ground_plane_ = builder.add_ground_plane();
 
-        sphere_ = builder.add_rigidbody("sphere1", Vec3{0.0f,3.0f,0.0f}, Quat{1.0f,0.0f,0.0f,0.0f});
+        sphere_ = builder.add_rigidbody("sphere1", Vec3{0.0f,5.0f,0.0f}, Quat{1.0f,0.0f,0.0f,0.0f});
         auto sphere_shape = builder.add_shape_sphere(sphere_, 0.4);
 
-        capsule_ = builder.add_rigidbody("capsule1", Vec3{0.0f,2.3f,0.0f}, Quat{1.0,0.0,0.0,0.0});
+        capsule_ = builder.add_rigidbody("capsule1", Vec3{0.0f,3.9f,0.0f}, Quat{1.0,0.0,0.0,0.0});
         auto capsule_shape = builder.add_shape_capsule(capsule_, 0.2, 0.5);
 
         // add collide pair. temporary
@@ -48,7 +48,7 @@ public:
 
         const auto joint_free = builder.add_joint_free(
             sphere_,
-            TTransform(Vec3{0.0f, 3.0f, 0.0f}, Quat{1.0f, 0.0f, 0.0f, 0.0f}),
+            TTransform::Identity(),
             TTransform::Identity(),
             "free_joint");
 
@@ -56,10 +56,14 @@ public:
             static_cast<int>(sphere_),
             static_cast<int>(capsule_),
             Vec3::UnitX(),
-            TTransform::Identity(),
+            TTransform(Vec3(0.0, 0.4, 0.0), Quat::Identity()),
             TTransform(Vec3(0.0,0.7,0.0), Quat::Identity()));
 
         auto art_0 = builder.add_articulation(std::array{joint_free, joint_revolute}, "sphere_n_capsule");
+
+        auto& revolute_degree = model.joint_q0.back();
+        revolute_degree = 3.1415926f * 0.5f;
+
         builder.finalize();
 
         scene_ = std::make_unique<Scene>(std::move(model));

@@ -43,6 +43,13 @@ private:
 
     void eval_rigid_jacobian();
 
+    void eval_rigid_mass();
+
+    void integrate_generalized_joints(const State& state_in, State& state_out, float dt);
+
+    void eval_fk_with_velocity_conversion(const std::vector<float> &joint_q, const std::vector<float> &joint_qd,
+                                          State &state) const;
+
 private:
 
     const MModel&  model_;
@@ -87,8 +94,8 @@ private:
     // ---- Featherstone solver runtime aux vars ----
     std::vector<float> joint_qdd;
     std::vector<float> joint_tau;
+    std::vector<float> joint_solve_tmp;
 
-    // std::vector<float> joint_solve_tmp;
     std::vector<SpatialVec> joint_S_s;          // per DOF motion subspace (6D)
 
     std::vector<TTransform> body_q_com;          // body COM pose in world
@@ -108,7 +115,7 @@ private:
 
     static TTransform compute_com_transform(const Vec3& com);
 
-    void compute_link_transform(int j, State& state_in);
+    void compute_link_transform(int i, State& state_in);
 
     [[nodiscard]] TTransform jcalc_transform(JointType type, int dof_start, int lin_axis_count, int ang_axis_count,
                                const std::vector<float> &joint_q, int q_start) const;
@@ -121,7 +128,7 @@ private:
 
     static Quat quat_from_axis_angle(const Vec3& axis, float angle);
 
-    void compute_link_velocity(int j, const State& state_in);
+    void compute_link_velocity(int i, const State& state_in);
 
     static SpatialVec spatial_cross(const SpatialVec& a, const SpatialVec& b);
 
@@ -133,6 +140,24 @@ private:
 
     static float joint_force(float q, float qd, float joint_target_pos, float joint_target_vel, float target_ke,
                              float target_kd, float limit_lower, float limit_upper, float limit_ke, float limit_kd);
+
+    static void dense_gemm(int m, int n, int p, bool transpose_A, bool transpose_B, bool add_to_C, int A_start, int B_start,
+                           int C_start, const std::vector<float> &A, const std::vector<float> &B, std::vector<float> &C);
+
+    static void dense_cholesky(int n,const std::vector<float>& A,const std::vector<float>& R,int A_start,int R_start,std::vector<float>& Low);
+
+    static void solve_cholesky_system(int n, int L_start, int b_start, const std::vector<float> &Low,
+                                      const std::vector<float> &b, std::vector<float> &x, std::vector<float> &tmp);
+
+    static int dense_index(const int cols, const int row, const int col) {
+        return row * cols + col;
+    }
+
+    void jcalc_integrate(JointType type, const std::vector<float> &joint_q, const std::vector<float> &joint_qd,
+                         const std::vector<float> &joint_qdd, int coord_start, int dof_start, int lin_axis_count,
+                         int ang_axis_count, float dt, std::vector<float> &joint_q_new,
+                         std::vector<float> &joint_qd_new);
+
 
 };
 

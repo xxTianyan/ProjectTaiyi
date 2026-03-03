@@ -38,9 +38,63 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
 
         eval_rigid_tau(state_in);
 
+        {
+            /*eval_rigid_jacobian();
+
+            // form P = M*J
+            for (size_t batch = 0; batch < articulation_M_rows.size(); batch++) {
+                dense_gemm(articulation_M_rows[batch],
+                    articulation_J_cols[batch],
+                    articulation_J_rows[batch],
+                    false,
+                    false,
+                    false,
+                    articulation_M_start[batch],
+                    articulation_J_start[batch],
+                    articulation_J_start[batch],
+                    M,
+                    J,
+                    P);
+            }
+
+            // form H = J^T*P
+            for (size_t batch = 0; batch < articulation_J_cols.size(); batch++) {
+                dense_gemm(articulation_J_cols[batch],
+                    articulation_J_cols[batch],
+                    articulation_J_rows[batch],
+                    true,
+                    false,
+                    false,
+                    articulation_J_start[batch],
+                    articulation_J_start[batch],
+                    articulation_H_start[batch],
+                    J,
+                    P,
+                    H);
+            }
+
+            // compute decomposition
+            for (size_t batch = 0; batch < articulation_H_start.size(); batch++) {
+                const int n = articulation_H_rows[batch];
+                const int A_start = articulation_H_start[batch];
+                const int R_start = articulation_dof_start[batch];
+                dense_cholesky(n, H, model_.joint_armature, A_start, R_start, L);
+            }*/
+        }
     }
 
+    // solve for qdd
+    /*for (size_t batch = 0; batch < articulation_H_start.size(); batch++) {
+        const int n = articulation_H_rows[batch];
+        const int L_start = articulation_H_start[batch];
+        const int b_start = articulation_dof_start[batch];
+        solve_cholesky_system(n, L_start, b_start, L, joint_tau, joint_qdd, joint_solve_tmp);
+    }
 
+    if (model_.num_joints > 0) {
+        integrate_generalized_joints(state_in, state_out, dt);
+        eval_fk_with_velocity_conversion(...);
+    }*/
 
 }
 
@@ -189,6 +243,9 @@ void OrderSolver::allocate_state_aux_vars() {
     // tau: same size as joint_qd
     joint_tau.assign(model_.num_joint_dof, 0.0f);
 
+    // tmp result vector when solving qdd
+    joint_solve_tmp.assign(model_.num_joint_dof, 0.0f);
+
     // one spatial motion subspace vector per DOF
     joint_S_s.resize(model_.num_joint_dof);
     for (size_t i = 0; i < model_.num_joint_dof; ++i) {
@@ -268,8 +325,8 @@ void OrderSolver::eval_rigid_fk(State &state_in) {
         const int start = model_.articulation_start[art];
         const int end = model_.articulation_start[art + 1];
 
-        for (int j = start; j < end; ++j) {
-            compute_link_transform(j, state_in);
+        for (int i = start; i < end; ++i) {
+            compute_link_transform(i, state_in);
         }
     }
 }
@@ -533,6 +590,300 @@ void OrderSolver::eval_rigid_jacobian() {
     }
 }
 
+void OrderSolver::eval_rigid_mass() {
+    std::ranges::fill(M, 0.0f);
+
+    for (size_t art = 0; art < model_.num_articulation; ++art) {
+        const int joint_start = model_.articulation_start[art];
+        const int joint_end =
+            (art + 1 < model_.num_articulation)
+                ? model_.articulation_start[art + 1]
+                : static_cast<int>(model_.num_joints);
+
+        const int joint_count = joint_end - joint_start;
+        const int M_offset = articulation_M_start[art];
+
+        const int cols = joint_count * 6;  // square block matrix
+
+        // Fill block diagonal with body_I_s
+        for (int i = 0; i < joint_count; ++i) {
+            const int body_idx = joint_start + i;
+            const Mat66& I_s = body_I_s[body_idx];
+
+            const int row_start = i * 6;
+            const int col_start = i * 6;
+
+            for (int r = 0; r < 6; ++r) {
+                for (int c = 0; c < 6; ++c) {
+                    const auto dense_index = (row_start + r) * cols + col_start + c;
+                    M[M_offset + dense_index] = I_s(r, c);
+                }
+            }
+        }
+    }
+
+}
+
+void OrderSolver::integrate_generalized_joints(const State &state_in, State &state_out, const float dt) {
+
+    for (size_t j = 0; j < model_.num_joints; ++j) {
+        const JointType type = model_.joint_type[j];
+        const int coord_start = model_.joint_q_start[j];
+        const int dof_start   = model_.joint_qd_start[j];
+        const int lin_axis_count = model_.joint_dof_dim[j].first;
+        const int ang_axis_count = model_.joint_dof_dim[j].second;
+
+        jcalc_integrate(
+            type,
+            state_in.joint_q,
+            state_in.joint_qd,
+            joint_qdd,              // solved acceleration from solver
+            coord_start,
+            dof_start,
+            lin_axis_count,
+            ang_axis_count,
+            dt,
+            state_out.joint_q,
+            state_out.joint_qd
+        );
+    }
+
+}
+
+void OrderSolver::eval_fk_with_velocity_conversion(const std::vector<float> &joint_q,
+    const std::vector<float> &joint_qd, State &state) const {
+
+    for (size_t art = 0; art < model_.num_articulation; ++art) {
+        const int joint_start = model_.articulation_start[art];
+        const int joint_end =
+            (art + 1 < model_.num_articulation)
+                ? model_.articulation_start[art + 1]
+                : static_cast<int>(model_.num_joints);
+
+        for (int i = joint_start; i < joint_end; ++i) {
+            const int parent = model_.joint_parent[i];
+            const int child  = model_.joint_child[i];
+            const JointType type = model_.joint_type[i];
+
+            const TTransform& p_X_pj = model_.joint_X_p[i];
+            const TTransform& c_X_cj = model_.joint_X_c[i];
+
+            // parent anchor frame in world space
+            TTransform w_X_pj = p_X_pj;
+
+            // velocity of parent anchor point in world space
+            Vec3 v_anchor_parent{0.0f, 0.0f, 0.0f};
+            Vec3 w_parent{0.0f, 0.0f, 0.0f};
+
+            if (parent >= 0) {
+                const TTransform w_X_p{state.body_pos[parent], state.body_rot[parent]};
+                w_X_pj = w_X_p * p_X_pj;
+
+                // parent body stores COM velocity in state
+                const Vec3& v_com_parent = state.body_lin_vel[parent];
+                w_parent = state.body_ang_vel[parent];
+
+                const Vec3 x_anchor = w_X_pj.p;
+                const Vec3 x_com_parent = w_X_p.transformPoint(model_.body_local_com[parent]);
+                const Vec3 r_p = x_anchor - x_com_parent;
+
+                // velocity at parent anchor point
+                v_anchor_parent = v_com_parent + w_parent.cross(r_p);
+            }
+
+            const int q_start  = model_.joint_q_start[i];
+            const int qd_start = model_.joint_qd_start[i];
+            const int lin_axis_count = model_.joint_dof_dim[i].first;
+            const int ang_axis_count = model_.joint_dof_dim[i].second;
+
+            // joint relative transform and joint local velocity
+            TTransform X_j = TTransform::Identity();
+            Vec3 v_j_local{0.0f, 0.0f, 0.0f};
+            Vec3 w_j_local{0.0f, 0.0f, 0.0f};
+
+            // --------------------------------------------------
+            // PRISMATIC
+            // --------------------------------------------------
+            if (type == JointType::PRISMATIC) {
+                const Vec3& axis = model_.joint_axis[qd_start];
+
+                const float q  = joint_q[q_start];
+                const float qd = joint_qd[qd_start];
+
+                X_j = TTransform{axis * q, Quat::Identity()};
+                v_j_local = axis * qd;
+            }
+
+            // --------------------------------------------------
+            // REVOLUTE
+            // --------------------------------------------------
+            else if (type == JointType::REVOLUTE) {
+                const Vec3& axis = model_.joint_axis[qd_start];
+
+                const float q  = joint_q[q_start];
+                const float qd = joint_qd[qd_start];
+
+                X_j = TTransform{Vec3{0.0f, 0.0f, 0.0f}, quat_from_axis_angle(axis, q)};
+                w_j_local = axis * qd;
+            }
+
+            // --------------------------------------------------
+            // BALL
+            // --------------------------------------------------
+            else if (type == JointType::BALL) {
+                Quat r{
+                    joint_q[q_start + 0],
+                    joint_q[q_start + 1],
+                    joint_q[q_start + 2],
+                    joint_q[q_start + 3]
+                };
+                r.normalize();
+
+                Vec3 w{
+                    joint_qd[qd_start + 0],
+                    joint_qd[qd_start + 1],
+                    joint_qd[qd_start + 2]
+                };
+
+                X_j = TTransform{Vec3{0.0f, 0.0f, 0.0f}, r};
+                w_j_local = w;
+            }
+
+            // --------------------------------------------------
+            // FREE / DISTANCE
+            // --------------------------------------------------
+            else if (type == JointType::FREE || type == JointType::DISTANCE) {
+                Vec3 p{
+                    joint_q[q_start + 0],
+                    joint_q[q_start + 1],
+                    joint_q[q_start + 2]
+                };
+
+                Quat r{
+                    joint_q[q_start + 3],
+                    joint_q[q_start + 4],
+                    joint_q[q_start + 5],
+                    joint_q[q_start + 6]
+                };
+                r.normalize();
+
+                Vec3 v{
+                    joint_qd[qd_start + 0],
+                    joint_qd[qd_start + 1],
+                    joint_qd[qd_start + 2]
+                };
+
+                Vec3 w{
+                    joint_qd[qd_start + 3],
+                    joint_qd[qd_start + 4],
+                    joint_qd[qd_start + 5]
+                };
+
+                X_j = TTransform{p, r};
+                v_j_local = v;
+                w_j_local = w;
+            }
+
+            // --------------------------------------------------
+            // D6
+            // --------------------------------------------------
+            else if (type == JointType::D6) {
+                Vec3 pos{0.0f, 0.0f, 0.0f};
+                Quat rot = Quat::Identity();
+
+                Vec3 vel_v{0.0f, 0.0f, 0.0f};
+                Vec3 vel_w{0.0f, 0.0f, 0.0f};
+
+                // linear axes
+                for (int k = 0; k < lin_axis_count; ++k) {
+                    const Vec3& axis = model_.joint_axis[qd_start + k];
+                    pos += axis * joint_q[q_start + k];
+                    vel_v += axis * joint_qd[qd_start + k];
+                }
+
+                // angular axes
+                const int iq  = q_start + lin_axis_count;
+                const int iqd = qd_start + lin_axis_count;
+
+                if (ang_axis_count == 1) {
+                    const Vec3& axis = model_.joint_axis[iqd];
+                    rot = quat_from_axis_angle(axis, joint_q[iq]);
+                    vel_w = axis * joint_qd[iqd];
+                }
+                else if (ang_axis_count == 2) {
+                    // simple sequential composition version
+                    const Vec3& a0 = model_.joint_axis[iqd + 0];
+                    const Vec3& a1 = model_.joint_axis[iqd + 1];
+
+                    const Quat q0 = quat_from_axis_angle(a0, joint_q[iq + 0]);
+                    const Quat q1 = quat_from_axis_angle(a1, joint_q[iq + 1]);
+
+                    rot = q0 * q1;
+                    rot.normalize();
+
+                    vel_w = a0 * joint_qd[iqd + 0] + a1 * joint_qd[iqd + 1];
+                }
+                else if (ang_axis_count == 3) {
+                    const Vec3& a0 = model_.joint_axis[iqd + 0];
+                    const Vec3& a1 = model_.joint_axis[iqd + 1];
+                    const Vec3& a2 = model_.joint_axis[iqd + 2];
+
+                    const Quat q0 = quat_from_axis_angle(a0, joint_q[iq + 0]);
+                    const Quat q1 = quat_from_axis_angle(a1, joint_q[iq + 1]);
+                    const Quat q2 = quat_from_axis_angle(a2, joint_q[iq + 2]);
+
+                    rot = q0 * q1 * q2;
+                    rot.normalize();
+
+                    vel_w =
+                        a0 * joint_qd[iqd + 0] +
+                        a1 * joint_qd[iqd + 1] +
+                        a2 * joint_qd[iqd + 2];
+                }
+
+                X_j = TTransform{pos, rot};
+                v_j_local = vel_v;
+                w_j_local = vel_w;
+            }
+
+            // --------------------------------------------------
+            // child world transform
+            // --------------------------------------------------
+            const TTransform w_X_cj = w_X_pj * X_j;
+            const TTransform w_X_c  = w_X_cj * c_X_cj.inverse();
+
+            // transform joint velocity contribution to world
+            const Vec3 v_j_world = w_X_pj.transformVector(v_j_local);
+            const Vec3 w_j_world = w_X_pj.transformVector(w_j_local);
+
+            // velocity at child body origin (or origin-style reference used by Newton path)
+            const Vec3 v_origin_child = v_anchor_parent + v_j_world;
+            const Vec3 w_child = w_parent + w_j_world;
+
+            // write transform
+            state.body_pos[child] = w_X_c.p;
+            state.body_rot[child] = w_X_c.q;
+
+            // --------------------------------------------------
+            // velocity conversion
+            // --------------------------------------------------
+            if (type == JointType::FREE || type == JointType::DISTANCE) {
+                // Newton converts origin-frame linear velocity to COM velocity:
+                // v_com = v_origin + w x x_com_world
+                const Vec3 x_com_world = w_X_c.transformPoint(model_.body_local_com[child]);
+                const Vec3 v_com = v_origin_child + w_child.cross(x_com_world);
+
+                state.body_lin_vel[child] = v_com;
+                state.body_ang_vel[child] = w_child;
+            } else {
+                // For the other joint types, store the propagated world velocity directly
+                state.body_lin_vel[child] = v_origin_child;
+                state.body_ang_vel[child] = w_child;
+            }
+        }
+    }
+}
+
 Mat66 OrderSolver::compute_spatial_inertia(const Mat3 &I, const float mass) {
     Mat66 out = Mat66::Zero();
     // top-left = m * I3
@@ -552,15 +903,15 @@ TTransform OrderSolver::compute_com_transform(const Vec3 &com) {
 
 }
 
-void OrderSolver::compute_link_transform(const int j, State &state_in) {
+void OrderSolver::compute_link_transform(const int i, State &state_in) {
 
     // topology
-    const int parent = model_.joint_parent[j];
-    const int child  = model_.joint_child[j];
+    const int parent = model_.joint_parent[i];
+    const int child  = model_.joint_child[i];
 
     // joint anchor transforms
-    const TTransform& p_X_pj = model_.joint_X_p[j];   // parent body -> parent joint anchor
-    const TTransform& c_X_cj = model_.joint_X_c[j];   // child  body -> child  joint anchor
+    const TTransform& p_X_pj = model_.joint_X_p[i];   // parent body -> parent joint anchor
+    const TTransform& c_X_cj = model_.joint_X_c[i];   // child  body -> child  joint anchor
 
     // world transform of parent anchor frame
     TTransform w_X_pj = p_X_pj;
@@ -570,12 +921,12 @@ void OrderSolver::compute_link_transform(const int j, State &state_in) {
     }
 
     // joint metadata
-    const JointType type = model_.joint_type[j];
-    const int dof_start   = model_.joint_qd_start[j];   // for axis indexing
-    const int coord_start = model_.joint_q_start[j];    // for q indexing
+    const JointType type = model_.joint_type[i];
+    const int dof_start   = model_.joint_qd_start[i];   // for axis indexing
+    const int coord_start = model_.joint_q_start[i];    // for q indexing
 
-    const int lin_axis_count = model_.joint_dof_dim[j].first;
-    const int ang_axis_count = model_.joint_dof_dim[j].second;
+    const int lin_axis_count = model_.joint_dof_dim[i].first;
+    const int ang_axis_count = model_.joint_dof_dim[i].second;
 
     // transform across the joint (depends on current joint_q)
     const TTransform X_j = jcalc_transform(
@@ -603,7 +954,6 @@ void OrderSolver::compute_link_transform(const int j, State &state_in) {
 
     // store COM transform
     body_q_com[child] = w_X_cc;
-
 }
 
 TTransform OrderSolver::jcalc_transform(const JointType type, const int dof_start, int lin_axis_count, int ang_axis_count,
@@ -789,8 +1139,9 @@ SpatialVec OrderSolver::jcalc_motion(const JointType type, const int lin_axis_co
 
 }
 
-void OrderSolver::jcalc_tau(JointType type, int coord_start, int dof_start, int lin_axis_count, int ang_axis_count,
-    const std::vector<float> &joint_q, const std::vector<float> &joint_qd, const SpatialVec &f_s) {
+void OrderSolver::jcalc_tau(const JointType type, const int coord_start, const int dof_start, const int lin_axis_count,
+                            const int ang_axis_count, const std::vector<float> &joint_q,
+                            const std::vector<float> &joint_qd, const SpatialVec &f_s) {
 
     switch (type) {
         case JointType::BALL: {
@@ -865,33 +1216,26 @@ void OrderSolver::jcalc_tau(JointType type, int coord_start, int dof_start, int 
             return;
         }
     }
-
-
-
 }
 
 Quat OrderSolver::quat_from_axis_angle(const Vec3 &axis, const float angle) {
     const float half = 0.5f * angle;
     const float s = std::sin(half);
     const float c = std::cos(half);
-
-    return Quat{
-        axis.x() * s,
-        axis.y() * s,
-        axis.z() * s,
-        c
-    };
+    auto result = Quat{axis.x() * s,axis.y() * s,axis.z() * s,c};
+    result.normalize();
+    return result;
 }
 
-void OrderSolver::compute_link_velocity(const int j, const State &state_in) {
-    const JointType type = model_.joint_type[j];
-    const int child = model_.joint_child[j];
-    const int parent = model_.joint_parent[j];
-    const int qd_start = model_.joint_qd_start[j];
+void OrderSolver::compute_link_velocity(const int i, const State &state_in) {
+    const JointType type = model_.joint_type[i];
+    const int child = model_.joint_child[i];
+    const int parent = model_.joint_parent[i];
+    const int qd_start = model_.joint_qd_start[i];
 
     /* all velocity in world frame */
 
-    const TTransform& p_X_pj = model_.joint_X_p[j];
+    const TTransform& p_X_pj = model_.joint_X_p[i];
 
     // parent anchor frame in world space
     TTransform w_X_pj = p_X_pj;
@@ -901,8 +1245,8 @@ void OrderSolver::compute_link_velocity(const int j, const State &state_in) {
     }
 
     // compute motion subspace S and velocity contribution across the joint
-    const int lin_axis_count = model_.joint_dof_dim[j].first;
-    const int ang_axis_count = model_.joint_dof_dim[j].second;
+    const int lin_axis_count = model_.joint_dof_dim[i].first;
+    const int ang_axis_count = model_.joint_dof_dim[i].second;
 
     // compute vj = vp + Si * dot{qi} in world frame
     const SpatialVec v_j = jcalc_motion(
@@ -1060,5 +1404,302 @@ float OrderSolver::joint_force(const float q, const float qd, const float joint_
     }
 
     return limit_f + damping_f + target_f;
+}
+
+void OrderSolver::dense_gemm(const int m, const int n, const int p, const bool transpose_A, const bool transpose_B,
+                             const bool add_to_C, const int A_start, const int B_start, const int C_start,
+                             const std::vector<float> &A, const std::vector<float> &B, std::vector<float> &C) {
+
+    // Multiply A (m x p) by B (p x n) to produce C (m x n)
+    for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < n; ++j) {
+            float sum = 0.0f;
+
+            for (int k = 0; k < p; ++k) {
+                int a_idx;
+                int b_idx;
+
+                if (transpose_A) {
+                    // A is stored as (p x m), read A^T(i,k) = A(k,i)
+                    a_idx = k * m + i;
+                } else {
+                    // A is stored as (m x p)
+                    a_idx = i * p + k;
+                }
+
+                if (transpose_B) {
+                    // B is stored as (n x p), read B^T(k,j) = B(j,k)
+                    b_idx = j * p + k;
+                } else {
+                    // B is stored as (p x n)
+                    b_idx = k * n + j;
+                }
+
+                sum += A[A_start + a_idx] * B[B_start + b_idx];
+            }
+
+            const int c_idx = C_start + i * n + j;
+            if (add_to_C) {
+                C[c_idx] += sum;
+            } else {
+                C[c_idx] = sum;
+            }
+        }
+    }
+}
+
+void OrderSolver::dense_cholesky(const int n, const std::vector<float> &A, const std::vector<float> &R, const int A_start,
+    const int R_start, std::vector<float> &Low) {
+
+    // Compute Cholesky factorization:
+    // A + diag(R) = L L^T
+
+    // clear this block first
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            Low[A_start + dense_index(n, i, j)] = 0.0f;
+        }
+    }
+
+    for (int j = 0; j < n; ++j) {
+        float s = A[A_start + dense_index(n, j, j)] + R[R_start + j];
+
+        for (int k = 0; k < j; ++k) {
+            const float r = Low[A_start + dense_index(n, j, k)];
+            s -= r * r;
+        }
+
+        // Numerical safety
+        if (s <= 0.0f) {
+            // You can choose a larger clamp if needed
+            s = 1e-8f;
+        }
+
+        const float diag = std::sqrt(s);
+        const float invDiag = 1.0f / diag;
+
+        Low[A_start + dense_index(n, j, j)] = diag;
+
+        for (int i = j + 1; i < n; ++i) {
+            float t = A[A_start + dense_index(n, i, j)];
+
+            for (int k = 0; k < j; ++k) {
+                t -= Low[A_start + dense_index(n, i, k)] * Low[A_start + dense_index(n, j, k)];
+            }
+
+            Low[A_start + dense_index(n, i, j)] = t * invDiag;
+        }
+    }
+}
+
+void OrderSolver::solve_cholesky_system(const int n, const int L_start, const int b_start,
+                                        const std::vector<float> &Low, const std::vector<float> &b,
+                                        std::vector<float> &x, std::vector<float> &tmp) {
+
+    // Solve (L L^T) x = b
+    // (1): forward substitution, L y = b
+    // Store y in tmp[b_start : b_start + n]
+
+    for (int i = 0; i < n; ++i) {
+        float s = b[b_start + i];
+
+        for (int j = 0; j < i; ++j) {
+            s -= Low[L_start + dense_index(n, i, j)] * tmp[b_start + j];
+        }
+
+        const float diag = Low[L_start + dense_index(n, i, i)];
+        tmp[b_start + i] = s / diag;
+    }
+
+    // (2): backward substitution, L^T x = y
+    for (int i = n - 1; i >= 0; --i) {
+        float s = tmp[b_start + i];
+
+        for (int j = i + 1; j < n; ++j) {
+            // L^T(i,j) = L(j,i)
+            s -= Low[L_start + dense_index(n, j, i)] * x[b_start + j];
+        }
+
+        const float diag = Low[L_start + dense_index(n, i, i)];
+        x[b_start + i] = s / diag;
+    }
+}
+
+void OrderSolver::jcalc_integrate(JointType type, const std::vector<float> &joint_q, const std::vector<float> &joint_qd,
+    const std::vector<float> &joint_qdd, int coord_start, int dof_start, int lin_axis_count, int ang_axis_count,
+    float dt, std::vector<float> &joint_q_new, std::vector<float> &joint_qd_new) {
+
+    if (type == JointType::FIXED) {
+        return;
+    }
+
+    // --------------------------------------------------
+    // PRISMATIC / REVOLUTE: single scalar dof
+    // --------------------------------------------------
+    if (type == JointType::PRISMATIC || type == JointType::REVOLUTE) {
+        const float qdd = joint_qdd[dof_start];
+        const float qd  = joint_qd[dof_start];
+        const float q   = joint_q[coord_start];
+
+        const float qd_new = qd + qdd * dt;
+        const float q_new  = q + qd_new * dt;   // symplectic Euler
+
+        joint_qd_new[dof_start]   = qd_new;
+        joint_q_new[coord_start]  = q_new;
+        return;
+    }
+
+    // --------------------------------------------------
+    // BALL: quaternion position (4 coords), angular velocity (3 dofs)
+    // --------------------------------------------------
+    if (type == JointType::BALL) {
+        const Vec3 alpha{
+            joint_qdd[dof_start + 0],
+            joint_qdd[dof_start + 1],
+            joint_qdd[dof_start + 2]
+        };
+
+        const Vec3 w{
+            joint_qd[dof_start + 0],
+            joint_qd[dof_start + 1],
+            joint_qd[dof_start + 2]
+        };
+
+        Quat r{
+            joint_q[coord_start + 0],
+            joint_q[coord_start + 1],
+            joint_q[coord_start + 2],
+            joint_q[coord_start + 3]
+        };
+
+        // symplectic Euler on angular velocity
+        const Vec3 w_new = w + alpha * dt;
+
+        // dr/dt = 0.5 * [w_new, 0] * r
+        const Quat w_quat = TY::quat_from_angular_velocity(w_new);
+        Quat drdt = w_quat * r;
+        drdt.coeffs() *= 0.5;
+
+        Quat r_new = r;
+        r_new.coeffs() += drdt.coeffs() * dt;
+        r_new.normalize();
+
+        // write position (quat)
+        joint_q_new[coord_start + 0] = r_new.x();
+        joint_q_new[coord_start + 1] = r_new.y();
+        joint_q_new[coord_start + 2] = r_new.z();
+        joint_q_new[coord_start + 3] = r_new.w();
+
+        // write velocity (angular)
+        joint_qd_new[dof_start + 0] = w_new.x();
+        joint_qd_new[dof_start + 1] = w_new.y();
+        joint_qd_new[dof_start + 2] = w_new.z();
+        return;
+    }
+
+    // --------------------------------------------------
+    // FREE / DISTANCE: 7 coords (p + quat), 6 dofs (v + w)
+    // --------------------------------------------------
+    if (type == JointType::FREE || type == JointType::DISTANCE) {
+        const Vec3 a{
+            joint_qdd[dof_start + 0],
+            joint_qdd[dof_start + 1],
+            joint_qdd[dof_start + 2]
+        };
+
+        const Vec3 alpha{
+            joint_qdd[dof_start + 3],
+            joint_qdd[dof_start + 4],
+            joint_qdd[dof_start + 5]
+        };
+
+        Vec3 v{
+            joint_qd[dof_start + 0],
+            joint_qd[dof_start + 1],
+            joint_qd[dof_start + 2]
+        };
+
+        Vec3 w{
+            joint_qd[dof_start + 3],
+            joint_qd[dof_start + 4],
+            joint_qd[dof_start + 5]
+        };
+
+        // symplectic Euler on velocities
+        w = w + alpha * dt;
+        v = v + a * dt;
+
+        Vec3 p{
+            joint_q[coord_start + 0],
+            joint_q[coord_start + 1],
+            joint_q[coord_start + 2]
+        };
+
+        Quat r{
+            joint_q[coord_start + 3],
+            joint_q[coord_start + 4],
+            joint_q[coord_start + 5],
+            joint_q[coord_start + 6]
+        };
+
+        // Newton uses spatial/world-origin convention:
+        // dp/dt = v + w x p
+        const Vec3 dpdt = v + w.cross(p);
+
+        // dr/dt = 0.5 * [w,0] * r
+        const Quat w_quat = TY::quat_from_angular_velocity(w);
+
+        // dr/dt = 0.5 * [w,0] * r
+        Quat drdt = w_quat * r;
+        drdt.coeffs() *= 0.5f;
+
+        const Vec3 p_new = p + dpdt * dt;
+
+        // r_new = normalize(r + drdt * dt)
+        Quat r_new = r;
+        r_new.coeffs() += drdt.coeffs() * dt;
+        r_new.normalize();
+
+        // write position
+        joint_q_new[coord_start + 0] = p_new.x();
+        joint_q_new[coord_start + 1] = p_new.y();
+        joint_q_new[coord_start + 2] = p_new.z();
+
+        joint_q_new[coord_start + 3] = r_new.x();
+        joint_q_new[coord_start + 4] = r_new.y();
+        joint_q_new[coord_start + 5] = r_new.z();
+        joint_q_new[coord_start + 6] = r_new.w();
+
+        // write velocity
+        joint_qd_new[dof_start + 0] = v.x();
+        joint_qd_new[dof_start + 1] = v.y();
+        joint_qd_new[dof_start + 2] = v.z();
+        joint_qd_new[dof_start + 3] = w.x();
+        joint_qd_new[dof_start + 4] = w.y();
+        joint_qd_new[dof_start + 5] = w.z();
+        return;
+    }
+
+    // --------------------------------------------------
+    // D6: treat each active axis as independent scalar dof
+    // --------------------------------------------------
+    if (type == JointType::D6) {
+        const int axis_count = lin_axis_count + ang_axis_count;
+
+        for (int i = 0; i < axis_count; ++i) {
+            const float qdd = joint_qdd[dof_start + i];
+            const float qd  = joint_qd[dof_start + i];
+            const float q   = joint_q[coord_start + i];
+
+            const float qd_new = qd + qdd * dt;
+            const float q_new  = q + qd_new * dt;
+
+            joint_qd_new[dof_start + i]  = qd_new;
+            joint_q_new[coord_start + i] = q_new;
+        }
+        return;
+    }
+
+
 }
 
