@@ -631,6 +631,7 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     model_.shape_material_ke.push_back(default_shape_ke);
     model_.shape_material_kd.push_back(default_shape_kd);
     model_.shape_material_mu.push_back(default_friction_mu);
+    model_.shape_material_kf.push_back(default_shape_kf);
 
     // --- maintain body_shapes_indices/offsets ---
     // Append shape id into flattened list
@@ -747,6 +748,7 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
     model_.shape_material_ke.push_back(default_shape_ke);
     model_.shape_material_kd.push_back(default_shape_kd);
     model_.shape_material_mu.push_back(default_friction_mu);
+    model_.shape_material_kf.push_back(default_shape_kf);
 
     // --- maintain body_shapes_indices/offsets ---
     model_.body_shapes_indices.push_back(shape_id);
@@ -986,6 +988,7 @@ size_t Builder::add_shape_sphere(const size_t body_id, float radius, const Vec3 
     // material parameters
     model_.shape_material_ke.push_back(default_shape_ke);
     model_.shape_material_kd.push_back(default_shape_kd);
+    model_.shape_material_kf.push_back(default_shape_kf);
     model_.shape_material_mu.push_back(default_friction_mu);
 
     // --- maintain body_shapes_indices/offsets ---
@@ -1109,6 +1112,7 @@ size_t Builder::add_ground_plane() const {
     // material parameter
     model_.shape_material_ke.push_back(default_shape_ke);
     model_.shape_material_kd.push_back(default_shape_kd);
+    model_.shape_material_kf.push_back(default_shape_kf);
     model_.shape_material_mu.push_back(default_friction_mu);
 
     model_.topology_version++;
