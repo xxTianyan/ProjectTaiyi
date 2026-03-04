@@ -93,7 +93,7 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
     }
 
     // solve for qdd
-    /*for (size_t batch = 0; batch < articulation_H_start.size(); batch++) {
+    for (size_t batch = 0; batch < articulation_H_start.size(); batch++) {
         const int n = articulation_H_rows[batch];
         const int L_start = articulation_H_start[batch];
         const int b_start = articulation_dof_start[batch];
@@ -103,7 +103,7 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
     if (model_.num_joints > 0) {
         integrate_generalized_joints(state_in, state_out, dt);
         eval_fk_with_velocity_conversion(state_out);
-    }*/
+    }
 
 }
 

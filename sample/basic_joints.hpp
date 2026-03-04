@@ -42,9 +42,6 @@ public:
         capsule_ = builder.add_rigidbody("capsule1", Vec3{0.0f,3.9f,0.0f}, Quat{1.0,0.0,0.0,0.0});
         auto capsule_shape = builder.add_shape_capsule(capsule_, 0.2, 0.5);
 
-        // add collide pair. temporary
-        model.shape_contact_pairs.emplace_back(sphere_shape, shape_ground_plane_);
-        model.shape_contact_pairs.emplace_back(capsule_shape, shape_ground_plane_);
 
         const auto joint_fix = builder.add_joint_fixed(
             -1,
@@ -59,6 +56,7 @@ public:
             Vec3::UnitZ(),
             TTransform(Vec3(0.0, -0.4, 0.0), Quat::Identity()),
             TTransform(Vec3(0.0,0.7,0.0), Quat::Identity()));
+
 
         auto art_0 = builder.add_articulation(std::array{joint_fix, joint_revolute}, "sphere_n_capsule");
 
@@ -92,6 +90,8 @@ public:
 private:
     size_t sphere_{};
     size_t capsule_{};
+
+
     size_t shape_ground_plane_{};
 };
 

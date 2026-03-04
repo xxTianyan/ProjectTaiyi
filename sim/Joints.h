@@ -7,8 +7,6 @@
 
 enum class JointType {
 
-    /*Enumeration of joint types supported in Newton.*/
-
     PRISMATIC = 0,
     /*Prismatic joint: allows translation along a single axis (1 DoF).*/
 
