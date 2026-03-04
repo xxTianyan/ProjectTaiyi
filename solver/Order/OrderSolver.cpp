@@ -1016,7 +1016,53 @@ TTransform OrderSolver::jcalc_transform(const JointType type, const int dof_star
             return TTransform{Vec3{px, py, pz}, rot};
         }
 
-        // case JointType::D6: {}
+        case JointType::D6: {
+
+            Vec3 pos{0.0f, 0.0f, 0.0f};
+            Quat rot = q_identity;
+
+            // Linear DOFs
+            for (int k = 0; k < lin_axis_count; ++k) {
+                const Vec3& axis = model_.joint_axis[dof_start + k];
+                pos += axis * joint_q[q_start + k];
+            }
+
+            // Angular DOFs
+            const int ia = dof_start + lin_axis_count; // angular axis start in joint_axis
+            const int iq = q_start + lin_axis_count;    // angular coord start in joint_q
+
+            if (ang_axis_count == 1) {
+                const Vec3& axis = model_.joint_axis[ia];
+                rot = quat_from_axis_angle(axis, joint_q[iq]);
+            }
+            else if (ang_axis_count == 2) {
+                // 简化实现：按顺序复合两个轴角旋转
+                const Vec3& a0 = model_.joint_axis[ia + 0];
+                const Vec3& a1 = model_.joint_axis[ia + 1];
+
+                const Quat q0 = quat_from_axis_angle(a0, joint_q[iq + 0]);
+                const Quat q1 = quat_from_axis_angle(a1, joint_q[iq + 1]);
+
+                rot = q0 * q1;
+                rot.normalize();
+            }
+            else if (ang_axis_count == 3) {
+                // 简化实现：按顺序复合三个轴角旋转
+                const Vec3& a0 = model_.joint_axis[ia + 0];
+                const Vec3& a1 = model_.joint_axis[ia + 1];
+                const Vec3& a2 = model_.joint_axis[ia + 2];
+
+                const Quat q0 = quat_from_axis_angle(a0, joint_q[iq + 0]);
+                const Quat q1 = quat_from_axis_angle(a1, joint_q[iq + 1]);
+                const Quat q2 = quat_from_axis_angle(a2, joint_q[iq + 2]);
+
+                rot = q0 * q1 * q2;
+                rot.normalize();
+            }
+
+            return TTransform{pos, rot};
+
+        }
 
         default:
             return TTransform::Identity();
