@@ -120,7 +120,7 @@ private:
     float default_shape_thickness = 1e-5;
     float default_shape_density = 1000.0f;
     float default_shape_ke = 2.5e3f;
-    float default_shape_kd = 100.0f;
+    float default_shape_kd = 10.0f;
     float default_shape_kf = 1000.0f;
     float default_friction_mu = 0.5;
     // JointDofConfig default_dof_config = JointDofConfig(Vec3(1.0f,0.0f,0.0f));

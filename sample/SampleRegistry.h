@@ -21,6 +21,7 @@ enum SampleId : int {
     FALLING_CLOTH,
     RIGID_BOX,
     BASIC_JOINTS,
+    HUMANOID,
 };
 
 struct SampleInfo {

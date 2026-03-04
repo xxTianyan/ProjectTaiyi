@@ -11,6 +11,7 @@
 #include "rigid_box.hpp"
 #include "rubber_ball.hpp"
 #include "basic_joints.hpp"
+#include "humanoid.hpp"
 
 void RegisterAllSamples(SampleRegistry& reg) {
 
@@ -36,4 +37,6 @@ void RegisterAllSamples(SampleRegistry& reg) {
     reg.Register(SampleId::BASIC_JOINTS, "Basic Joints",
         []()->SamplePtr {return std::make_unique<BasicJoints>();});
 
+    reg.Register(SampleId::HUMANOID, "Humanoid",
+        []()->SamplePtr {return std::make_unique<Humanoid>();});
 }

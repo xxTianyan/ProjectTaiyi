@@ -11,7 +11,7 @@ int main(){
     constexpr Application::Desc Desc;
     Application app(Desc);
     RegisterAllSamples(app.Registry());
-    app.Run(SampleId::BASIC_JOINTS);
+    app.Run(SampleId::HUMANOID);
 
     return 0;
 }
