@@ -51,7 +51,7 @@ public:
         const int art_ = builder.add_articulation(std::array{joint},"art_1");*/
 
         // ---------------------- capsule ------------------------
-        int b2 = builder.add_rigidbody("capsule1", Vec3{0.0f,5.0f,2.0f}, Quat::Identity());
+        int b2 = builder.add_rigidbody("capsule1", Vec3{1.0f,7.0f,1.0f}, Quat::Identity());
         auto shape_2 = builder.add_shape_capsule(b2, 0.2, 0.5);
         bodies_.push_back(b2);
 

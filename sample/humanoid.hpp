@@ -215,67 +215,101 @@ public:
 
         // torso
         const size_t torso = builder.add_rigidbody("torso", torso_w, Quat::Identity());
-        add_capsule_fromto_mj(builder, torso, Vec3( 0.00f, -0.07f,  0.00f), Vec3( 0.00f,  0.07f,  0.00f), 0.07f);
-        add_capsule_fromto_mj(builder, torso, Vec3(-0.01f, -0.06f, -0.12f), Vec3(-0.01f,  0.06f, -0.12f), 0.06f);
+        const int torso_shape0 = add_capsule_fromto_mj(builder, torso, Vec3(0.00f, -0.07f, 0.00f),
+                                                       Vec3(0.00f, 0.07f, 0.00f), 0.07f);
+        const int torso_shape1 = add_capsule_fromto_mj(builder, torso, Vec3(-0.01f, -0.06f, -0.12f),
+                                                       Vec3(-0.01f, 0.06f, -0.12f), 0.06f);
         int torso_shape = builder.add_shape_sphere(torso, 0.09f, mj_to_ty(Vec3(0.0f, 0.0f, 0.19f)), Quat::Identity());
         bodies_.push_back(torso);
+        shapes_.push_back(torso_shape0);
+        shapes_.push_back(torso_shape1);
+        shapes_.push_back(torso_shape);
 
         // waist / pelvis
         const size_t waist_lower = builder.add_rigidbody("waist_lower", waist_lower_w, Quat::Identity());
-        add_capsule_fromto_mj(builder, waist_lower, Vec3( 0.00f, -0.06f, 0.0f), Vec3( 0.00f, 0.06f, 0.0f), 0.06f);
+        const int waist_lower_shape = add_capsule_fromto_mj(builder, waist_lower, Vec3(0.00f, -0.06f, 0.0f),
+                                                            Vec3(0.00f, 0.06f, 0.0f), 0.06f);
         bodies_.push_back(waist_lower);
+        shapes_.push_back(waist_lower_shape);
 
         const size_t pelvis = builder.add_rigidbody("pelvis", pelvis_w, Quat::Identity());
-        add_capsule_fromto_mj(builder, pelvis,Vec3(-0.02f, -0.07f, 0.0f), Vec3(-0.02f, 0.07f, 0.0f), 0.09f);
+        const int pelvis_shape = add_capsule_fromto_mj(builder, pelvis, Vec3(-0.02f, -0.07f, 0.0f),
+                                                       Vec3(-0.02f, 0.07f, 0.0f), 0.09f);
         bodies_.push_back(pelvis);
+        shapes_.push_back(pelvis_shape);
 
         // right leg
         const size_t thigh_right = builder.add_rigidbody("thigh_right", thigh_r_w, Quat::Identity());
-        add_capsule_fromto_mj(builder, thigh_right, Vec3(0, 0.00f, 0.00f), Vec3(0, 0.01f, -0.34f), 0.06f);
+        const int thigh_right_shape = add_capsule_fromto_mj(builder, thigh_right, Vec3(0, 0.00f, 0.00f),
+                                                            Vec3(0, 0.01f, -0.34f), 0.06f);
         bodies_.push_back(thigh_right);
+        shapes_.push_back(thigh_right_shape);
 
         const size_t shin_right  = builder.add_rigidbody("shin_right",  shin_r_w,  Quat::Identity());
-        add_capsule_fromto_mj(builder, shin_right,  Vec3(0, 0.00f, 0.00f), Vec3(0, 0.00f, -0.30f), 0.049f);
+        const int shin_right_shape = add_capsule_fromto_mj(builder, shin_right, Vec3(0, 0.00f, 0.00f),
+                                                           Vec3(0, 0.00f, -0.30f), 0.049f);
         bodies_.push_back(shin_right);
+        shapes_.push_back(shin_right_shape);
 
         const size_t foot_right  = builder.add_rigidbody("foot_right",  foot_r_w,  Quat::Identity());
-        add_capsule_fromto_mj(builder, foot_right,  Vec3(-0.07f, -0.01f, 0.0f), Vec3(0.14f, -0.03f, 0.0f), 0.027f);
-        add_capsule_fromto_mj(builder, foot_right,  Vec3(-0.07f,  0.01f, 0.0f), Vec3(0.14f,  0.03f, 0.0f), 0.027f);
+        const int foot_right_shape0 = add_capsule_fromto_mj(builder, foot_right, Vec3(-0.07f, -0.01f, 0.0f),
+                                                            Vec3(0.14f, -0.03f, 0.0f), 0.027f);
+        const int foot_right_shape1 = add_capsule_fromto_mj(builder, foot_right, Vec3(-0.07f, 0.01f, 0.0f),
+                                                            Vec3(0.14f, 0.03f, 0.0f), 0.027f);
         bodies_.push_back(foot_right);
+        shapes_.push_back(foot_right_shape0);
+        shapes_.push_back(foot_right_shape1);
 
         // left leg
         const size_t thigh_left = builder.add_rigidbody("thigh_left", thigh_l_w, Quat::Identity());
-        add_capsule_fromto_mj(builder, thigh_left, Vec3(0, 0.00f, 0.00f), Vec3(0, -0.01f, -0.34f), 0.06f);
+        const int thigh_left_shape = add_capsule_fromto_mj(builder, thigh_left, Vec3(0, 0.00f, 0.00f),
+                                                           Vec3(0, -0.01f, -0.34f), 0.06f);
         bodies_.push_back(thigh_left);
+        shapes_.push_back(thigh_left_shape);
 
         const size_t shin_left  = builder.add_rigidbody("shin_left",  shin_l_w,  Quat::Identity());
-        add_capsule_fromto_mj(builder, shin_left,  Vec3(0, 0.00f, 0.00f), Vec3(0,  0.00f, -0.30f), 0.049f);
+        const int shin_left_shape = add_capsule_fromto_mj(builder, shin_left, Vec3(0, 0.00f, 0.00f),
+                                                          Vec3(0, 0.00f, -0.30f), 0.049f);
         bodies_.push_back(shin_left);
+        shapes_.push_back(shin_left_shape);
 
         const size_t foot_left  = builder.add_rigidbody("foot_left",  foot_l_w,  Quat::Identity());
-        add_capsule_fromto_mj(builder, foot_left,  Vec3(-0.07f, -0.01f, 0.0f), Vec3(0.14f, -0.03f, 0.0f), 0.027f);
-        add_capsule_fromto_mj(builder, foot_left,  Vec3(-0.07f,  0.01f, 0.0f), Vec3(0.14f,  0.03f, 0.0f), 0.027f);
+        const int foot_left_shape0 = add_capsule_fromto_mj(builder, foot_left, Vec3(-0.07f, -0.01f, 0.0f),
+                                                           Vec3(0.14f, -0.03f, 0.0f), 0.027f);
+        const int foot_left_shape1 = add_capsule_fromto_mj(builder, foot_left, Vec3(-0.07f, 0.01f, 0.0f),
+                                                           Vec3(0.14f, 0.03f, 0.0f), 0.027f);
         bodies_.push_back(foot_left);
+        shapes_.push_back(foot_left_shape0);
+        shapes_.push_back(foot_left_shape1);
 
         // right arm
         const size_t upper_arm_right = builder.add_rigidbody("upper_arm_right", uarm_r_w, Quat::Identity());
-        add_capsule_fromto_mj(builder, upper_arm_right, Vec3(0, 0, 0), Vec3(0.16f, -0.16f, -0.16f), 0.04f);
+        const int upper_arm_right_shape = add_capsule_fromto_mj(builder, upper_arm_right, Vec3(0, 0, 0),
+                                                                Vec3(0.16f, -0.16f, -0.16f), 0.04f);
         bodies_.push_back(upper_arm_right);
+        shapes_.push_back(upper_arm_right_shape);
 
         const size_t lower_arm_right = builder.add_rigidbody("lower_arm_right", larm_r_w, Quat::Identity());
-        add_capsule_fromto_mj(builder, lower_arm_right, Vec3(0.01f, 0.01f, 0.01f), Vec3(0.17f, 0.17f, 0.17f), 0.031f);
+        const int lower_arm_right_shape = add_capsule_fromto_mj(builder, lower_arm_right, Vec3(0.01f, 0.01f, 0.01f),
+                                                                Vec3(0.17f, 0.17f, 0.17f), 0.031f);
         int lar_shape = builder.add_shape_sphere(lower_arm_right, 0.04f, mj_to_ty(Vec3(0.18f, 0.18f, 0.18f)), Quat::Identity());
         bodies_.push_back(lower_arm_right);
+        shapes_.push_back(lower_arm_right_shape);
+        shapes_.push_back(lar_shape);
 
         // left arm
         const size_t upper_arm_left = builder.add_rigidbody("upper_arm_left", uarm_l_w, Quat::Identity());
-        add_capsule_fromto_mj(builder, upper_arm_left, Vec3(0, 0, 0), Vec3(0.16f, 0.16f, -0.16f), 0.04f);
+        const int upper_arm_left_shape = add_capsule_fromto_mj(builder, upper_arm_left, Vec3(0, 0, 0),
+                                                               Vec3(0.16f, 0.16f, -0.16f), 0.04f);
         bodies_.push_back(upper_arm_left);
+        shapes_.push_back(upper_arm_left_shape);
 
         const size_t lower_arm_left = builder.add_rigidbody("lower_arm_left", larm_l_w, Quat::Identity());
-        add_capsule_fromto_mj(builder, lower_arm_left, Vec3(0.01f, -0.01f, 0.01f), Vec3(0.17f, -0.17f, 0.17f), 0.031f);
+        const int lower_arm_left_shape = add_capsule_fromto_mj(builder, lower_arm_left, Vec3(0.01f, -0.01f, 0.01f), Vec3(0.17f, -0.17f, 0.17f), 0.031f);
         int lal_shape = builder.add_shape_sphere(lower_arm_left, 0.04f, mj_to_ty(Vec3(0.18f, -0.18f, 0.18f)), Quat::Identity());
         bodies_.push_back(lower_arm_left);
+        shapes_.push_back(lower_arm_left_shape);
+        shapes_.push_back(lal_shape);
 
         std::vector<int> joints;
         joints.reserve(16);
@@ -501,6 +535,10 @@ public:
             "elbow_left"
         ));
 
+        // add plane collision
+        for (const int s : shapes_) {
+            model.shape_contact_pairs.emplace_back(s, shape_ground_plane_);
+        }
 
         // articulation + finalize
         const int humanoid_art = builder.add_articulation(joints, "humanoid_v1_yup");
@@ -529,6 +567,7 @@ public:
 
 private:
     std::vector<int> bodies_;
+    std::vector<int> shapes_;
     size_t shape_ground_plane_{};
 
 };

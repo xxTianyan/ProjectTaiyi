@@ -1163,20 +1163,34 @@ int Builder::add_joint(const JointType joint_type, const int parent, const int c
     for (auto& d : angular_axes) add_axis(d);
 
     // ---- allocate q/qd/f and record offsets ----
-    const int axis_count = static_cast<int>(linear_axes.size()) + static_cast<int>(angular_axes.size());
+    const int axis_count = linear_axes.size() + angular_axes.size();
     auto [dof_count, coord_count] = get_joint_dof_coord_count(joint_type, axis_count);
 
-    model_.joint_q_start.push_back(model_.num_joint_coord);
-    model_.joint_qd_start.push_back(model_.num_joint_dof);
+    // record start offsets
+    const int coord_start = model_.num_joint_coord;
+    const int dof_start   = model_.num_joint_dof;
 
+    model_.joint_q_start.push_back(coord_start);
+    model_.joint_qd_start.push_back(dof_start);
+
+    // allocate storage
     model_.joint_q0.resize(model_.joint_q0.size() + coord_count, 0.0f);
     model_.joint_qd0.resize(model_.joint_qd0.size() + dof_count, 0.0f);
 
-    // ensure valid quaternion for types that store rotation as quat in q
-    if (joint_type == JointType::FREE || joint_type == JointType::BALL || joint_type == JointType::DISTANCE) {
-        if (coord_count > 0) model_.joint_q0.back() = 1.0f;
+    // initialize quaternion
+    if (joint_type == JointType::BALL)
+    {
+        // (w,x,y,z)
+        model_.joint_q0[coord_start + 0] = 1.0f;
     }
 
+    if (joint_type == JointType::FREE || joint_type == JointType::DISTANCE)
+    {
+        // (px,py,pz, qw,qx,qy,qz)
+        model_.joint_q0[coord_start + 3] = 1.0f;
+    }
+
+    // update counters
     model_.num_joint_coord += coord_count;
     model_.num_joint_dof += dof_count;
     model_.num_joints += 1;
@@ -1261,10 +1275,10 @@ int Builder::add_joint_free(const int child, const TTransform &parent_xform, con
     model_.joint_q0[q_start + 0] = X.p.x();
     model_.joint_q0[q_start + 1] = X.p.y();
     model_.joint_q0[q_start + 2] = X.p.z();
-    model_.joint_q0[q_start + 3] = X.q.x();
-    model_.joint_q0[q_start + 4] = X.q.y();
-    model_.joint_q0[q_start + 5] = X.q.z();
-    model_.joint_q0[q_start + 6] = X.q.w();
+    model_.joint_q0[q_start + 3] = X.q.w();
+    model_.joint_q0[q_start + 4] = X.q.x();
+    model_.joint_q0[q_start + 5] = X.q.y();
+    model_.joint_q0[q_start + 6] = X.q.z();
 
 
     return joint_id;

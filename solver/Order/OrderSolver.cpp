@@ -3,6 +3,9 @@
 //
 
 #include "OrderSolver.h"
+
+#include <iostream>
+
 #include "Math.hpp"
 
 void OrderSolver::clear() {
@@ -371,7 +374,7 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
         int body_b = -1;
 
         // average material parameters
-        float ke = 1e7f;   // normal stiffness, temoporary
+        float ke = 0.0f;   // normal stiffness, temoporary
         float kd = 0.0f;   // damping
         float kf = 0.0f;   // friction stiffness
         // float ka = 0.0f;   // adhesion cutoff distance
@@ -406,6 +409,8 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
             // ka *= inv;
             mu *= inv;
         }
+
+        ke = 1e7;
 
         /*// per-contact overrides, temperary no
         if (!contacts.rigid_contact_stiffness.empty()) {
@@ -548,6 +553,56 @@ void OrderSolver::eval_rigid_tau(const State &state_in) {
             f_ext.segment<3>(3) = state_in.body_torque[child];*/
 
             const SpatialVec f_s = f_b_s + f_t_s + f_ext;
+
+            // ------------------------------------------------------------
+            // DEBUG: inspect wrench reference-point effects
+            // ------------------------------------------------------------
+            /*{
+                const Vec3 F     = f_s.segment<3>(0);   // linear force (world frame)
+                const Vec3 tau_O = f_s.segment<3>(3);   // torque about world origin? (assumed)
+
+                // body origin/world pose
+                const Vec3 x_body = state_in.body_pos[child];
+
+                // world COM position
+                const TTransform w_X_b{state_in.body_pos[child], state_in.body_rot[child]};
+                const Vec3 x_com = w_X_b.transformPoint(model_.body_local_com[child]);
+
+                // current joint anchor world position
+                // parent_xform is "joint in parent frame"; for root/free-joint parent<0 we use child side
+                Vec3 x_joint = x_body;
+                if (parent >= 0) {
+                    const TTransform w_X_p{state_in.body_pos[parent], state_in.body_rot[parent]};
+                    x_joint = w_X_p.transformPoint(model_.joint_X_p[j].p);  // <-- see note below
+                } else {
+                    // for free/root joint, use child anchor if available
+                    x_joint = w_X_b.transformPoint(model_.joint_X_c[j].p);  // <-- see note below
+                }
+
+                // shift torque from world-origin to COM / joint-anchor
+                const Vec3 tau_com   = tau_O - x_com.cross(F);
+                const Vec3 tau_joint = tau_O - x_joint.cross(F);
+
+                // only print when force is non-trivial
+                if (F.norm() > 1.0e-5f || tau_O.norm() > 1.0e-5f) {
+                    std::cout
+                        << "\n[eval_rigid_tau debug] joint=" << j
+                        << " child=" << child
+                        << " parent=" << parent
+                        << "\n  F        = " << F.transpose()
+                        << "\n  tau_O    = " << tau_O.transpose()
+                        << "\n  x_body   = " << x_body.transpose()
+                        << "\n  x_com    = " << x_com.transpose()
+                        << "\n  x_joint  = " << x_joint.transpose()
+                        << "\n  tau_com  = " << tau_com.transpose()
+                        << "\n  tau_joint= " << tau_joint.transpose()
+                        << "\n  |tau_O|=" << tau_O.norm()
+                        << "  |tau_com|=" << tau_com.norm()
+                        << "  |tau_joint|=" << tau_joint.norm()
+                        << "\n";
+                }
+            }*/
+
 
             // project to joint-space and add derives/limits/etc
             jcalc_tau(type, coord_start, dof_start, lin_axis_count, ang_axis_count, state_in.joint_q, state_in.joint_qd, f_s);
@@ -985,12 +1040,12 @@ TTransform OrderSolver::jcalc_transform(const JointType type, const int dof_star
         }
 
         case JointType::BALL: {
-            const float qx = joint_q[q_start + 0];
-            const float qy = joint_q[q_start + 1];
-            const float qz = joint_q[q_start + 2];
-            const float qw = joint_q[q_start + 3];
+            const float qw = joint_q[q_start + 0];
+            const float qx = joint_q[q_start + 1];
+            const float qy = joint_q[q_start + 2];
+            const float qz = joint_q[q_start + 3];
 
-            Quat rot{qx, qy, qz, qw};
+            Quat rot{qw, qx, qy, qz};
             rot.normalize();   // 建议归一化，防止数值漂
             return TTransform{zero_pos, rot};
         }
@@ -1005,10 +1060,10 @@ TTransform OrderSolver::jcalc_transform(const JointType type, const int dof_star
             const float py = joint_q[q_start + 1];
             const float pz = joint_q[q_start + 2];
 
-            const float qx = joint_q[q_start + 3];
-            const float qy = joint_q[q_start + 4];
-            const float qz = joint_q[q_start + 5];
-            const float qw = joint_q[q_start + 6];
+            const float qw = joint_q[q_start + 3];
+            const float qx = joint_q[q_start + 4];
+            const float qy = joint_q[q_start + 5];
+            const float qz = joint_q[q_start + 6];
 
             Quat rot{qw, qx, qy, qz,};
             rot.normalize();
