@@ -104,7 +104,6 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
         integrate_generalized_joints(state_in, state_out, dt);
         eval_fk_with_velocity_conversion(state_out);
     }
-
 }
 
 void OrderSolver::compute_articulation_indices() {
@@ -1011,7 +1010,7 @@ TTransform OrderSolver::jcalc_transform(const JointType type, const int dof_star
             const float qz = joint_q[q_start + 5];
             const float qw = joint_q[q_start + 6];
 
-            Quat rot{qx, qy, qz, qw};
+            Quat rot{qw, qx, qy, qz,};
             rot.normalize();
             return TTransform{Vec3{px, py, pz}, rot};
         }
@@ -1304,13 +1303,12 @@ void OrderSolver::compute_link_velocity(const int i, const State &state_in) {
     const int ang_axis_count = model_.joint_dof_dim[i].second;
 
     // compute vj = vp + Si * dot{qi} in world frame
-    const SpatialVec v_j = jcalc_motion(
-    type,
-    lin_axis_count,
-    ang_axis_count,
-    w_X_pj,
-    state_in.joint_qd,
-    qd_start);
+    const SpatialVec v_j = jcalc_motion(type,
+        lin_axis_count,
+        ang_axis_count,
+        w_X_pj,
+        state_in.joint_qd,
+        qd_start);
 
     // parent velocity / bias acceleration
     SpatialVec v_parent = SpatialVec::Zero();
@@ -1640,10 +1638,10 @@ void OrderSolver::jcalc_integrate(JointType type, const std::vector<float> &join
         r_new.normalize();
 
         // write position (quat)
-        joint_q_new[coord_start + 0] = r_new.x();
-        joint_q_new[coord_start + 1] = r_new.y();
-        joint_q_new[coord_start + 2] = r_new.z();
-        joint_q_new[coord_start + 3] = r_new.w();
+        joint_q_new[coord_start + 0] = r_new.w();
+        joint_q_new[coord_start + 1] = r_new.x();
+        joint_q_new[coord_start + 2] = r_new.y();
+        joint_q_new[coord_start + 3] = r_new.z();
 
         // write velocity (angular)
         joint_qd_new[dof_start + 0] = w_new.x();
@@ -1720,10 +1718,10 @@ void OrderSolver::jcalc_integrate(JointType type, const std::vector<float> &join
         joint_q_new[coord_start + 1] = p_new.y();
         joint_q_new[coord_start + 2] = p_new.z();
 
-        joint_q_new[coord_start + 3] = r_new.x();
-        joint_q_new[coord_start + 4] = r_new.y();
-        joint_q_new[coord_start + 5] = r_new.z();
-        joint_q_new[coord_start + 6] = r_new.w();
+        joint_q_new[coord_start + 3] = r_new.w();
+        joint_q_new[coord_start + 4] = r_new.x();
+        joint_q_new[coord_start + 5] = r_new.y();
+        joint_q_new[coord_start + 6] = r_new.z();
 
         // write velocity
         joint_qd_new[dof_start + 0] = v.x();

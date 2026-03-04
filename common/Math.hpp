@@ -96,7 +96,7 @@ namespace TY {
     }
 
     static  Quat quat_from_angular_velocity(const Vec3& w) {
-        return Quat{w.z(), w.x(), w.y(), 0.0f};
+        return Quat(0.0f, w.x(), w.y(), w.z());
     }
 
 }

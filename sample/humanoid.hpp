@@ -12,23 +12,23 @@
 
 namespace {
 
-inline float deg(float d) {
+float deg(float d) {
     return d * 3.14159265358979323846f / 180.0f;
 }
 
 // MuJoCo(z-up) -> Taiyi(y-up)
 // (x, y, z)_mj -> (x, z, y)_ty
-inline Vec3 mj_to_ty(const Vec3& v) {
+Vec3 mj_to_ty(const Vec3& v) {
     return Vec3(v.x(), v.z(), v.y());
 }
 
 // 方向向量同样做坐标轴置换
-inline Vec3 mj_axis_to_ty(const Vec3& v) {
+Vec3 mj_axis_to_ty(const Vec3& v) {
     return Vec3(v.x(), v.z(), v.y());
 }
 
 // 把本地 +Y 轴旋到 dir
-inline Quat quat_from_to_y(const Vec3& dir_in) {
+Quat quat_from_to_y(const Vec3& dir_in) {
     Vec3 from = Vec3::UnitY();
     Vec3 to = dir_in;
     to.normalize();
@@ -56,7 +56,7 @@ inline Quat quat_from_to_y(const Vec3& dir_in) {
 }
 
 // 用 MuJoCo 的 fromto（局部点）加 capsule
-inline size_t add_capsule_fromto_mj(
+ size_t add_capsule_fromto_mj(
     Builder& builder,
     size_t body_id,
     const Vec3& p0_mj,
@@ -92,7 +92,7 @@ inline size_t add_capsule_fromto_mj(
     );
 }
 
-inline JointDofConfig make_dof_mj(
+ JointDofConfig make_dof_mj(
     const Vec3& axis_mj,
     float lower_rad,
     float upper_rad,
@@ -121,7 +121,7 @@ inline JointDofConfig make_dof_mj(
 }
 
 // 方便写 joint anchor：输入 MuJoCo 局部点，自动转成 Taiyi(y-up)
-inline TTransform X_mj(const Vec3& p_mj) {
+ TTransform X_mj(const Vec3& p_mj) {
     TTransform X;
     X.p = mj_to_ty(p_mj);
     X.q = Quat::Identity();
@@ -214,65 +214,65 @@ public:
         const Vec3 larm_l_w      = mj_to_ty(larm_l_w_mj);      // (0.18, 1.162, 0.35)
 
         // torso
-        const size_t torso = builder.add_rigidbody("torso", torso_w, Quat::Identity(), false);
+        const size_t torso = builder.add_rigidbody("torso", torso_w, Quat::Identity());
         add_capsule_fromto_mj(builder, torso, Vec3( 0.00f, -0.07f,  0.00f), Vec3( 0.00f,  0.07f,  0.00f), 0.07f);
         add_capsule_fromto_mj(builder, torso, Vec3(-0.01f, -0.06f, -0.12f), Vec3(-0.01f,  0.06f, -0.12f), 0.06f);
         int torso_shape = builder.add_shape_sphere(torso, 0.09f, mj_to_ty(Vec3(0.0f, 0.0f, 0.19f)), Quat::Identity());
         bodies_.push_back(torso);
 
         // waist / pelvis
-        const size_t waist_lower = builder.add_rigidbody("waist_lower", waist_lower_w, Quat::Identity(), false);
+        const size_t waist_lower = builder.add_rigidbody("waist_lower", waist_lower_w, Quat::Identity());
         add_capsule_fromto_mj(builder, waist_lower, Vec3( 0.00f, -0.06f, 0.0f), Vec3( 0.00f, 0.06f, 0.0f), 0.06f);
         bodies_.push_back(waist_lower);
 
-        const size_t pelvis = builder.add_rigidbody("pelvis", pelvis_w, Quat::Identity(), false);
+        const size_t pelvis = builder.add_rigidbody("pelvis", pelvis_w, Quat::Identity());
         add_capsule_fromto_mj(builder, pelvis,Vec3(-0.02f, -0.07f, 0.0f), Vec3(-0.02f, 0.07f, 0.0f), 0.09f);
         bodies_.push_back(pelvis);
 
         // right leg
-        const size_t thigh_right = builder.add_rigidbody("thigh_right", thigh_r_w, Quat::Identity(), false);
+        const size_t thigh_right = builder.add_rigidbody("thigh_right", thigh_r_w, Quat::Identity());
         add_capsule_fromto_mj(builder, thigh_right, Vec3(0, 0.00f, 0.00f), Vec3(0, 0.01f, -0.34f), 0.06f);
         bodies_.push_back(thigh_right);
 
-        const size_t shin_right  = builder.add_rigidbody("shin_right",  shin_r_w,  Quat::Identity(), false);
+        const size_t shin_right  = builder.add_rigidbody("shin_right",  shin_r_w,  Quat::Identity());
         add_capsule_fromto_mj(builder, shin_right,  Vec3(0, 0.00f, 0.00f), Vec3(0, 0.00f, -0.30f), 0.049f);
         bodies_.push_back(shin_right);
 
-        const size_t foot_right  = builder.add_rigidbody("foot_right",  foot_r_w,  Quat::Identity(), false);
+        const size_t foot_right  = builder.add_rigidbody("foot_right",  foot_r_w,  Quat::Identity());
         add_capsule_fromto_mj(builder, foot_right,  Vec3(-0.07f, -0.01f, 0.0f), Vec3(0.14f, -0.03f, 0.0f), 0.027f);
         add_capsule_fromto_mj(builder, foot_right,  Vec3(-0.07f,  0.01f, 0.0f), Vec3(0.14f,  0.03f, 0.0f), 0.027f);
         bodies_.push_back(foot_right);
 
         // left leg
-        const size_t thigh_left = builder.add_rigidbody("thigh_left", thigh_l_w, Quat::Identity(), false);
+        const size_t thigh_left = builder.add_rigidbody("thigh_left", thigh_l_w, Quat::Identity());
         add_capsule_fromto_mj(builder, thigh_left, Vec3(0, 0.00f, 0.00f), Vec3(0, -0.01f, -0.34f), 0.06f);
         bodies_.push_back(thigh_left);
 
-        const size_t shin_left  = builder.add_rigidbody("shin_left",  shin_l_w,  Quat::Identity(), false);
+        const size_t shin_left  = builder.add_rigidbody("shin_left",  shin_l_w,  Quat::Identity());
         add_capsule_fromto_mj(builder, shin_left,  Vec3(0, 0.00f, 0.00f), Vec3(0,  0.00f, -0.30f), 0.049f);
         bodies_.push_back(shin_left);
 
-        const size_t foot_left  = builder.add_rigidbody("foot_left",  foot_l_w,  Quat::Identity(), false);
+        const size_t foot_left  = builder.add_rigidbody("foot_left",  foot_l_w,  Quat::Identity());
         add_capsule_fromto_mj(builder, foot_left,  Vec3(-0.07f, -0.01f, 0.0f), Vec3(0.14f, -0.03f, 0.0f), 0.027f);
         add_capsule_fromto_mj(builder, foot_left,  Vec3(-0.07f,  0.01f, 0.0f), Vec3(0.14f,  0.03f, 0.0f), 0.027f);
         bodies_.push_back(foot_left);
 
         // right arm
-        const size_t upper_arm_right = builder.add_rigidbody("upper_arm_right", uarm_r_w, Quat::Identity(), false);
+        const size_t upper_arm_right = builder.add_rigidbody("upper_arm_right", uarm_r_w, Quat::Identity());
         add_capsule_fromto_mj(builder, upper_arm_right, Vec3(0, 0, 0), Vec3(0.16f, -0.16f, -0.16f), 0.04f);
         bodies_.push_back(upper_arm_right);
 
-        const size_t lower_arm_right = builder.add_rigidbody("lower_arm_right", larm_r_w, Quat::Identity(), false);
+        const size_t lower_arm_right = builder.add_rigidbody("lower_arm_right", larm_r_w, Quat::Identity());
         add_capsule_fromto_mj(builder, lower_arm_right, Vec3(0.01f, 0.01f, 0.01f), Vec3(0.17f, 0.17f, 0.17f), 0.031f);
         int lar_shape = builder.add_shape_sphere(lower_arm_right, 0.04f, mj_to_ty(Vec3(0.18f, 0.18f, 0.18f)), Quat::Identity());
         bodies_.push_back(lower_arm_right);
 
         // left arm
-        const size_t upper_arm_left = builder.add_rigidbody("upper_arm_left", uarm_l_w, Quat::Identity(), false);
+        const size_t upper_arm_left = builder.add_rigidbody("upper_arm_left", uarm_l_w, Quat::Identity());
         add_capsule_fromto_mj(builder, upper_arm_left, Vec3(0, 0, 0), Vec3(0.16f, 0.16f, -0.16f), 0.04f);
         bodies_.push_back(upper_arm_left);
 
-        const size_t lower_arm_left = builder.add_rigidbody("lower_arm_left", larm_l_w, Quat::Identity(), false);
+        const size_t lower_arm_left = builder.add_rigidbody("lower_arm_left", larm_l_w, Quat::Identity());
         add_capsule_fromto_mj(builder, lower_arm_left, Vec3(0.01f, -0.01f, 0.01f), Vec3(0.17f, -0.17f, 0.17f), 0.031f);
         int lal_shape = builder.add_shape_sphere(lower_arm_left, 0.04f, mj_to_ty(Vec3(0.18f, -0.18f, 0.18f)), Quat::Identity());
         bodies_.push_back(lower_arm_left);
@@ -280,17 +280,16 @@ public:
         std::vector<int> joints;
         joints.reserve(16);
 
-        /*// root free joint
-        // world anchor = torso 当前世界位置；child anchor = body 原点
+        // root free joint
         joints.push_back(builder.add_joint_free(
             static_cast<int>(torso),
-            X_mj(torso_w_mj),
+            TTransform::Identity(),
             TTransform::Identity(),
             "root"
         ));
 
         // torso -> waist_lower : abdomen_z + abdomen_y
-        {
+        /*{
             std::array<JointDofConfig, 2> axes = {
                 make_dof_mj(Vec3(0, 0, 1), deg(-45), deg(45), 1.0e4f, 10.0f, 20.0f, 5.0f),
                 make_dof_mj(Vec3(0, 1, 0), deg(-75), deg(30), 1.0e4f, 10.0f, 10.0f, 5.0f)
@@ -504,7 +503,7 @@ public:
 
 
         // articulation + finalize
-        // const int humanoid_art = builder.add_articulation(joints, "humanoid_v1_yup");
+        const int humanoid_art = builder.add_articulation(joints, "humanoid_v1_yup");
         builder.finalize();
 
         scene_ = std::make_unique<Scene>(std::move(model));
