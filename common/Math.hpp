@@ -89,10 +89,8 @@ namespace TY {
     }
 
     inline float norm_huber(const  Vec3& v, const float delta) {
-        auto a = v.dot(v);
-        if (a <= delta * delta)
-            return a * 0.5;
-        return delta * (std::sqrt(a) - 0.5f * delta);
+        const float a = v.dot(v);
+        return std::sqrt(a + delta * delta);
     }
 
     static  Quat quat_from_angular_velocity(const Vec3& w) {

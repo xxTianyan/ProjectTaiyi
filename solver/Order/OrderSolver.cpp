@@ -351,7 +351,6 @@ void OrderSolver::eval_rigid_id(const State &state_in) {
             compute_link_velocity(j, state_in);
         }
     }
-
 }
 
 void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
@@ -493,15 +492,12 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
             if (v_s > 0.0f) {
                 const Vec3 dir = v_t / v_s;
 
-                // normal reaction magnitude (positive clamp value)
                 const float normal_mag = -(f_n + f_d);
-
                 if (normal_mag > 0.0f) {
                     const float viscous_mag = kf * v_s;
                     const float coulomb_cap = mu * normal_mag;
                     const float friction_mag = std::min(viscous_mag, coulomb_cap);
 
-                    // oppose tangential motion
                     f_t = -dir * friction_mag;
                 }
             }
@@ -553,56 +549,6 @@ void OrderSolver::eval_rigid_tau(const State &state_in) {
             f_ext.segment<3>(3) = state_in.body_torque[child];*/
 
             const SpatialVec f_s = f_b_s + f_t_s + f_ext;
-
-            // ------------------------------------------------------------
-            // DEBUG: inspect wrench reference-point effects
-            // ------------------------------------------------------------
-            /*{
-                const Vec3 F     = f_s.segment<3>(0);   // linear force (world frame)
-                const Vec3 tau_O = f_s.segment<3>(3);   // torque about world origin? (assumed)
-
-                // body origin/world pose
-                const Vec3 x_body = state_in.body_pos[child];
-
-                // world COM position
-                const TTransform w_X_b{state_in.body_pos[child], state_in.body_rot[child]};
-                const Vec3 x_com = w_X_b.transformPoint(model_.body_local_com[child]);
-
-                // current joint anchor world position
-                // parent_xform is "joint in parent frame"; for root/free-joint parent<0 we use child side
-                Vec3 x_joint = x_body;
-                if (parent >= 0) {
-                    const TTransform w_X_p{state_in.body_pos[parent], state_in.body_rot[parent]};
-                    x_joint = w_X_p.transformPoint(model_.joint_X_p[j].p);  // <-- see note below
-                } else {
-                    // for free/root joint, use child anchor if available
-                    x_joint = w_X_b.transformPoint(model_.joint_X_c[j].p);  // <-- see note below
-                }
-
-                // shift torque from world-origin to COM / joint-anchor
-                const Vec3 tau_com   = tau_O - x_com.cross(F);
-                const Vec3 tau_joint = tau_O - x_joint.cross(F);
-
-                // only print when force is non-trivial
-                if (F.norm() > 1.0e-5f || tau_O.norm() > 1.0e-5f) {
-                    std::cout
-                        << "\n[eval_rigid_tau debug] joint=" << j
-                        << " child=" << child
-                        << " parent=" << parent
-                        << "\n  F        = " << F.transpose()
-                        << "\n  tau_O    = " << tau_O.transpose()
-                        << "\n  x_body   = " << x_body.transpose()
-                        << "\n  x_com    = " << x_com.transpose()
-                        << "\n  x_joint  = " << x_joint.transpose()
-                        << "\n  tau_com  = " << tau_com.transpose()
-                        << "\n  tau_joint= " << tau_joint.transpose()
-                        << "\n  |tau_O|=" << tau_O.norm()
-                        << "  |tau_com|=" << tau_com.norm()
-                        << "  |tau_joint|=" << tau_joint.norm()
-                        << "\n";
-                }
-            }*/
-
 
             // project to joint-space and add derives/limits/etc
             jcalc_tau(type, coord_start, dof_start, lin_axis_count, ang_axis_count, state_in.joint_q, state_in.joint_qd, f_s);
@@ -711,7 +657,7 @@ void OrderSolver::integrate_generalized_joints(const State &state_in, State &sta
 
 }
 
-void OrderSolver::eval_fk_with_velocity_conversion( State &state_out) const {
+void OrderSolver::eval_fk_with_velocity_conversion(State &state_out) const {
 
     const auto& joint_q = state_out.joint_q;
     const auto& joint_qd = state_out.joint_qd;
@@ -725,11 +671,11 @@ void OrderSolver::eval_fk_with_velocity_conversion( State &state_out) const {
             const int child  = model_.joint_child[i];
             const JointType type = model_.joint_type[i];
 
-            const TTransform& p_X_pj = model_.joint_X_p[i];
-            const TTransform& c_X_cj = model_.joint_X_c[i];
+            const TTransform& p_X_j = model_.joint_X_p[i];
+            const TTransform& c_X_j = model_.joint_X_c[i];
 
             // parent anchor frame in world space
-            TTransform w_X_pj = p_X_pj;
+            TTransform w_X_pj = p_X_j;
 
             // velocity of parent anchor point in world space
             Vec3 v_anchor_parent{0.0f, 0.0f, 0.0f};
@@ -737,7 +683,7 @@ void OrderSolver::eval_fk_with_velocity_conversion( State &state_out) const {
 
             if (parent >= 0) {
                 const TTransform w_X_p{state_out.body_pos[parent], state_out.body_rot[parent]};
-                w_X_pj = w_X_p * p_X_pj;
+                w_X_pj = w_X_p * p_X_j;
 
                 // parent body stores COM velocity in state
                 const Vec3& v_com_parent = state_out.body_lin_vel[parent];
@@ -910,7 +856,7 @@ void OrderSolver::eval_fk_with_velocity_conversion( State &state_out) const {
             // child world transform
             // --------------------------------------------------
             const TTransform w_X_cj = w_X_pj * X_j;
-            const TTransform w_X_c  = w_X_cj * c_X_cj.inverse();
+            const TTransform w_X_c  = w_X_cj * c_X_j.inverse();
 
             // transform joint velocity contribution to world
             const Vec3 v_j_world = w_X_pj.transformVector(v_j_local);
@@ -944,10 +890,10 @@ void OrderSolver::eval_fk_with_velocity_conversion( State &state_out) const {
     }
 }
 
-Mat66 OrderSolver::compute_spatial_inertia(const Mat3 &I, const float mass) {
+Mat66 OrderSolver::compute_spatial_inertia(const Mat3 &I, const float inv_mass) {
     Mat66 out = Mat66::Zero();
     // top-left = m * I3
-    out.block<3,3>(0,0) = 1 / mass * Mat3::Identity();
+    out.block<3,3>(0,0) = 1 / inv_mass * Mat3::Identity();
 
     // bottom-right = rotational inertia
     out.block<3,3>(3,3) = I;
@@ -1235,7 +1181,6 @@ SpatialVec OrderSolver::jcalc_motion(const JointType type, const int lin_axis_co
             basis(k) = 1.0f;
             joint_S_s[qd_start + k] = transform_twist(w_X_pj, basis);
         }
-
         return v_j_s;
     }
 
@@ -1245,7 +1190,6 @@ SpatialVec OrderSolver::jcalc_motion(const JointType type, const int lin_axis_co
         //           << static_cast<int>(type) << "\n";
         return SpatialVec::Zero();
     }
-
 }
 
 void OrderSolver::jcalc_tau(const JointType type, const int coord_start, const int dof_start, const int lin_axis_count,
@@ -1344,13 +1288,13 @@ void OrderSolver::compute_link_velocity(const int i, const State &state_in) {
 
     /* all velocity in world frame */
 
-    const TTransform& p_X_pj = model_.joint_X_p[i];
+    const TTransform& p_X_j = model_.joint_X_p[i];
 
     // parent anchor frame in world space
-    TTransform w_X_pj = p_X_pj;
+    TTransform w_X_pj = p_X_j;
     if (parent >= 0) {
         const TTransform w_X_p{state_in.body_pos[parent], state_in.body_rot[parent]};
-        w_X_pj = w_X_p * p_X_pj;
+        w_X_pj = w_X_p * p_X_j;
     }
 
     // compute motion subspace S and velocity contribution across the joint
@@ -1397,8 +1341,9 @@ void OrderSolver::compute_link_velocity(const int i, const State &state_in) {
     SpatialVec f_g_s = SpatialVec::Zero();
     f_g_s.segment<3>(0) = f_g;                  // force
     f_g_s.segment<3>(3) = r_com.cross(f_g);     // torque about world origin
+    // f_g_s.segment<3>(3) = Vec3::Zero();
 
-    // transform model/local spatial inertia to current solver/world expression
+    // transform model/local spatial inertia to current world expression
     const Mat66 I_s = transform_spatial_inertia(w_X_cc, I_m);
 
     // bias force: I*a + v x* (I*v)

@@ -111,7 +111,7 @@ private:
 
 private:
 
-    static Mat66 compute_spatial_inertia(const Mat3& I, float mass);
+    static Mat66 compute_spatial_inertia(const Mat3& I, float inv_mass);
 
     static TTransform compute_com_transform(const Vec3& com);
 
