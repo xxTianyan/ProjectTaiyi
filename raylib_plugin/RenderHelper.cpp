@@ -190,59 +190,6 @@ void RenderHelper::Rebuild() {
             mesh.vertices[i * 3 + 2] = p.z();
         }
 
-
-        ////////////////////
-        /*if (mesh.vertexCount <= 0 || mesh.vertices == nullptr) {
-            printf("[Rigid %i] Empty mesh!\n", 0);
-            return;
-        }
-
-        // 初始化 min/max
-        Vector3 min_v = { FLT_MAX, FLT_MAX, FLT_MAX };
-        Vector3 max_v = { -FLT_MAX, -FLT_MAX, -FLT_MAX };
-
-        // 遍历所有顶点找出边界
-        for (int i = 0; i < mesh.vertexCount; i++) {
-            float x = mesh.vertices[i * 3 + 0];
-            float y = mesh.vertices[i * 3 + 1];
-            float z = mesh.vertices[i * 3 + 2];
-
-            if (x < min_v.x) min_v.x = x;
-            if (y < min_v.y) min_v.y = y;
-            if (z < min_v.z) min_v.z = z;
-
-            if (x > max_v.x) max_v.x = x;
-            if (y > max_v.y) max_v.y = y;
-            if (z > max_v.z) max_v.z = z;
-        }
-
-        // 计算尺寸 (Size) 和 几何中心 (Center)
-        Vector3 size = { max_v.x - min_v.x, max_v.y - min_v.y, max_v.z - min_v.z };
-        Vector3 center = { (max_v.x + min_v.x) / 2.0f, (max_v.y + min_v.y) / 2.0f, (max_v.z + min_v.z) / 2.0f };
-
-        printf("---------- [Rigid Body %i Inspection] ----------\n", 0);
-        printf("Bounds Y (Height): [%.4f] to [%.4f]\n", min_v.y, max_v.y);
-        printf("Total Size       : W:%.4f, H:%.4f, D:%.4f\n", size.x, size.y, size.z);
-        printf("Geometric Center : X:%.4f, Y:%.4f, Z:%.4f\n", center.x, center.y, center.z);
-
-        // 自动诊断建议
-        if (std::abs(center.y) > 0.01f) {
-            printf(">>> [WARNING] Mesh origin is NOT centered! Offset Y: %.4f\n", center.y);
-        } else {
-            printf(">>> [OK] Mesh is centered on Y axis.\n");
-        }
-
-        // 假设物理半边长是 1.0 (即全长 2.0)
-        if (std::abs(size.y - 2.0f) < 0.01f) {
-            printf(">>> [Match] Mesh size (2.0) matches Physics Half-Extent(1.0). Use Scale 1.0.\n");
-        } else if (std::abs(size.y - 1.0f) < 0.01f) {
-            printf(">>> [MISMATCH] Mesh size is 1.0, but Physics is 2.0. YOU NEED SCALE = 2.0.\n");
-        } else {
-            printf(">>> [Info] Mesh size is %.2f. Check your physics settings.\n", size.y);
-        }
-        printf("-------------------------------------------------\n");*/
-        //////////////////////
-
         // indices are local (0..vertex_count - 1)
         BuildIndicesU16(*model_, rb.info.render_tri, vertex_begin, vertex_count, mesh.indices);
 

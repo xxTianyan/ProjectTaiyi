@@ -32,7 +32,6 @@ struct DeformableBodyInfo {
 struct RigidBodyInfo {
     std::string name;
     range vertex;  // vertices of rigid body surface mesh
-    range shapes;
     range render_tri;
 };
 

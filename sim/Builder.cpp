@@ -641,7 +641,6 @@ size_t Builder::add_shape_box(const size_t body_id, const float hx, const float 
     }
 
     auto& info = model_.body_infos[body_id];
-    info.shapes.count += 1;
 
     // --- mass/inertia contribution  ---
     if (contribute_mass && density > 0.0f) {
@@ -757,7 +756,6 @@ size_t Builder::add_shape_capsule(size_t body_id, float radius, float half_heigh
     }
 
     auto& info = model_.body_infos[body_id];
-    info.shapes.count += 1;
 
     // --- mass/inertia contribution (Newton-like) ---
     // Shape frame convention:
@@ -999,7 +997,6 @@ size_t Builder::add_shape_sphere(const size_t body_id, float radius, const Vec3 
     }
 
     auto& info = model_.body_infos[body_id];
-    info.shapes.count += 1;
 
     // --- mass/inertia contribution (Newton-like) ---
     if (contribute_mass && density > 0.0f) {
@@ -1486,12 +1483,10 @@ void Builder::AddRigidBodyInfo(const char *name, const size_t n_vertices, const 
     if (model_.body_infos.empty()) {
         info.vertex = range{0, n_vertices};
         info.render_tri = range{0, n_render_tris};
-        info.shapes = range{0, n_shapes};
     } else {
         const auto& last_body = model_.body_infos.back();
         info.vertex = range(last_body.vertex.end(), n_vertices);
         info.render_tri = range(last_body.render_tri.end(), n_render_tris);
-        info.shapes = range{last_body.shapes.end(), n_shapes};
     }
     model_.body_infos.emplace_back(info);
 }
