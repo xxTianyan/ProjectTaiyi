@@ -106,6 +106,12 @@ public:
                                       const TTransform &child_xform, std::string key = {},
                                       bool collision_filter_parent = true, bool enabled = true);
 
+    [[nodiscard]] int add_joint_d6(int parent, int child, std::span<const JointDofConfig> linear_axes = {},
+                                   std::span<const JointDofConfig> angular_axes = {},
+                                   const TTransform &parent_xform = TTransform::Identity(),
+                                   const TTransform &child_xform = TTransform::Identity(), std::string key = {},
+                                   bool collision_filter_parent = true, bool enabled = true) const;
+
     [[nodiscard]] int add_articulation(std::span<const int> joints, std::string key) const;
 
     static std::pair<int, int> get_joint_dof_coord_count(JointType joint_type, int num_axes);

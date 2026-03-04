@@ -1282,6 +1282,23 @@ int Builder::add_joint_fixed(int parent, int child, const TTransform &parent_xfo
     return joint_index;
 }
 
+int Builder::add_joint_d6(int parent, int child, std::span<const JointDofConfig> linear_axes,
+    std::span<const JointDofConfig> angular_axes, const TTransform &parent_xform, const TTransform &child_xform,
+    std::string key, bool collision_filter_parent, bool enabled) const {
+    return add_joint(JointType::D6,
+        parent,
+        child,
+        linear_axes,
+        angular_axes,
+        parent_xform,
+        child_xform,
+        std::move(key),
+        collision_filter_parent,
+        enabled
+        );
+
+}
+
 int Builder::add_articulation(const std::span<const int> joints, std::string key) const {
 
     if (joints.empty()) {
