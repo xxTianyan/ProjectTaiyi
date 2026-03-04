@@ -22,6 +22,7 @@ enum SampleId : int {
     RIGID_BOX,
     BASIC_JOINTS,
     HUMANOID,
+    DEBUG,
 };
 
 struct SampleInfo {

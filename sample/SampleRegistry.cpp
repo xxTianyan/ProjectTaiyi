@@ -11,7 +11,9 @@
 #include "rigid_box.hpp"
 #include "rubber_ball.hpp"
 #include "basic_joints.hpp"
+#include "debug_scene.hpp"
 #include "humanoid.hpp"
+#include "debug_scene.hpp"
 
 void RegisterAllSamples(SampleRegistry& reg) {
 
@@ -39,4 +41,7 @@ void RegisterAllSamples(SampleRegistry& reg) {
 
     reg.Register(SampleId::HUMANOID, "Humanoid",
         []()->SamplePtr {return std::make_unique<Humanoid>();});
+
+    reg.Register(SampleId::DEBUG, "Debug Lab",
+        []()->SamplePtr {return std::make_unique<DebugLab>();});
 }
