@@ -289,7 +289,7 @@ public:
         ));
 
         // torso -> waist_lower : abdomen_z + abdomen_y
-        /*{
+        {
             std::array<JointDofConfig, 2> axes = {
                 make_dof_mj(Vec3(0, 0, 1), deg(-45), deg(45), 1.0e4f, 10.0f, 20.0f, 5.0f),
                 make_dof_mj(Vec3(0, 1, 0), deg(-75), deg(30), 1.0e4f, 10.0f, 10.0f, 5.0f)
@@ -499,7 +499,7 @@ public:
             1.0e6f, 1.0e6f,
             0.0f,
             "elbow_left"
-        ));*/
+        ));
 
 
         // articulation + finalize
