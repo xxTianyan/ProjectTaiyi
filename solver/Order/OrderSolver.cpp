@@ -96,6 +96,7 @@ void OrderSolver::Step(State &state_in, State &state_out, const Contacts *contac
     }
 
     // solve for qdd
+    for (auto& t : joint_qdd) { t = 0.0f;}
     for (size_t batch = 0; batch < articulation_H_start.size(); batch++) {
         const int n = articulation_H_rows[batch];
         const int L_start = articulation_H_start[batch];
@@ -409,6 +410,8 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
             mu *= inv;
         }
 
+        ke = 1e5;
+
         /*// per-contact overrides, temperary no
         if (!contacts.rigid_contact_stiffness.empty()) {
             const float contact_ke = contacts.rigid_contact_stiffness[tid];
@@ -473,7 +476,7 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
         const float v_n = n.dot(v_rel);
         const Vec3 v_t = v_rel - n * v_n;
 
-        // Normal force (penalty + damping)
+        // Normal force
         const float f_n = ke * d;
 
         // damping only when approaching
@@ -485,20 +488,10 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
         // Smooth Coulomb friction
         Vec3 f_t{0.0f, 0.0f, 0.0f};
 
-        if (d < 0.0f) {
-            const float v_s = TY::norm_huber(v_t, friction_smoothing);
-            if (v_s > 0.0f) {
-                const Vec3 dir = v_t / v_s;
-
-                const float normal_mag = -(f_n + f_d);
-                if (normal_mag > 0.0f) {
-                    const float viscous_mag = kf * v_s;
-                    const float coulomb_cap = mu * normal_mag;
-                    const float friction_mag = std::min(viscous_mag, coulomb_cap);
-
-                    f_t = -dir * friction_mag;
-                }
-            }
+        const float v_s = TY::norm_huber(v_t, friction_smoothing);
+        if (v_s > 0.0f) {
+            const Vec3 fr = v_t / v_s;
+            f_t = fr * std::min(kf * v_s, -mu * (f_n + f_d));
         }
 
         // total contact force on bodies

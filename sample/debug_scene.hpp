@@ -52,7 +52,7 @@ public:
 
         // ---------------------- capsule ------------------------
         int b2 = builder.add_link("capsule1", Vec3{1.0f,7.0f,1.0f}, Quat{0.9238795325,0.3826834324,0,0});
-        auto shape_2 = builder.add_shape_capsule(b2, 0.2, 0.5);
+        auto shape_2 = builder.add_shape_capsule(b2, 0.3, 0.7);
         bodies_.push_back(b2);
 
         const int joint2 = builder.add_joint_free(b2,
@@ -82,7 +82,6 @@ public:
             body_model.materials[0].shader = rubber_shader;
             body_model.materials[0].maps[MATERIAL_MAP_ALBEDO].color = Color{230, 200, 160, 255};
         }
-
     }
 
 
