@@ -409,8 +409,6 @@ void OrderSolver::eval_body_contact(State &state_in, const Contacts *contacts) {
             mu *= inv;
         }
 
-        ke = 1e7;
-
         /*// per-contact overrides, temperary no
         if (!contacts.rigid_contact_stiffness.empty()) {
             const float contact_ke = contacts.rigid_contact_stiffness[tid];

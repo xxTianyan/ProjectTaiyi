@@ -51,12 +51,12 @@ public:
         const int art_ = builder.add_articulation(std::array{joint},"art_1");*/
 
         // ---------------------- capsule ------------------------
-        int b2 = builder.add_link("capsule1", Vec3::Zero(), Quat::Identity());
+        int b2 = builder.add_link("capsule1", Vec3{1.0f,7.0f,1.0f}, Quat{0.9238795325,0.3826834324,0,0});
         auto shape_2 = builder.add_shape_capsule(b2, 0.2, 0.5);
         bodies_.push_back(b2);
 
         const int joint2 = builder.add_joint_free(b2,
-            TTransform(Vec3{1.0f,20.0f,1.0f}, Quat::Identity()),
+            TTransform::Identity(),
             TTransform::Identity(),
             "joint_free2");
 
