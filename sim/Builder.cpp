@@ -563,7 +563,7 @@ size_t Builder::add_sphere(const float radius,
     return model_.mesh_infos.size() - 1;
 }
 
-size_t Builder::add_rigidbody(const std::string &name, const Vec3 &pos, const Quat &rot, const bool kinematic, const float mass,
+size_t Builder::add_link(const std::string &name, const Vec3 &pos, const Quat &rot, const bool kinematic, const float mass,
     const Vec3 &com, const Mat3 &inertia_tensor) const {
 
     const int body_id = static_cast<int>(model_.num_bodies);
@@ -601,9 +601,19 @@ size_t Builder::add_rigidbody(const std::string &name, const Vec3 &pos, const Qu
     return body_id;
 }
 
+size_t Builder::add_body(const std::string &name, const Vec3 &pos, const Quat &rot, bool kinematic, float mass,
+    const Vec3 &com, const Mat3 &inertia_tensor) const {
+
+    const size_t body_id = add_link(name, pos, rot, kinematic, mass, com, inertia_tensor);
+    const int joint_id = add_joint_free(body_id,TTransform::Identity(), TTransform::Identity());
+    const int art_id = add_articulation(std::array{joint_id}, "art");
+
+    return body_id;
+}
+
 size_t Builder::add_shape_box(const size_t body_id, const float hx, const float hy, const float hz, const Vec3 &local_pos,
-    const Quat &local_rot, float density, float thickness, float margin, const bool contribute_mass,
-    const bool contribute_render_mesh) const {
+                              const Quat &local_rot, float density, float thickness, float margin, const bool contribute_mass,
+                              const bool contribute_render_mesh) const {
     if (body_id < 0 || static_cast<size_t>(body_id) >= model_.num_bodies) {
         throw std::runtime_error("addShapeBox(): invalid body_id");
     }

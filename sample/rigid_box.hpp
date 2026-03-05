@@ -37,7 +37,7 @@ public:
         Builder builder(model);
         shape_ground_plane_ = builder.add_ground_plane();
 
-        rigid_box_ = builder.add_rigidbody("box", Vec3{0.0f,7.0f,0.0f}, Quat{0.9238795325,0.3826834324,0,0});
+        rigid_box_ = builder.add_body("box", Vec3{0.0f,7.0f,0.0f}, Quat{0.9238795325,0.3826834324,0,0});
         auto box_shape = builder.add_shape_box(rigid_box_, 0.5f, 0.25f, 0.35f);
 
         // add collide pair. temporary

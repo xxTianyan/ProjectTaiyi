@@ -36,10 +36,10 @@ public:
         Builder builder(model);
         shape_ground_plane_ = builder.add_ground_plane();
 
-        sphere_ = builder.add_rigidbody("sphere1", Vec3{0.0f,5.0f,0.0f}, Quat::Identity());
+        sphere_ = builder.add_link("sphere1", Vec3{0.0f,5.0f,0.0f}, Quat::Identity());
         auto sphere_shape = builder.add_shape_sphere(sphere_, 0.4, Vec3::Zero(), Quat::Identity());
 
-        capsule_ = builder.add_rigidbody("capsule1", Vec3{0.0f,3.9f,0.0f}, Quat{1.0,0.0,0.0,0.0});
+        capsule_ = builder.add_link("capsule1", Vec3{0.0f,3.9f,0.0f}, Quat{1.0,0.0,0.0,0.0});
         auto capsule_shape = builder.add_shape_capsule(capsule_, 0.2, 0.5);
 
 

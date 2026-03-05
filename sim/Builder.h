@@ -55,9 +55,13 @@ public:
 
     [[nodiscard]] size_t add_sphere(float radius, int res, const Vec3& center, float mass, const char* name) const;
 
-    [[nodiscard]] size_t add_rigidbody(const std::string &name, const Vec3 &pos, const Quat &rot,
-                                       bool kinematic = true, float mass = 0.0f, const Vec3 &com = Vec3::Zero(),
-                                       const Mat3 &inertia_tensor = Mat3::Zero()) const;
+    [[nodiscard]] size_t add_link(const std::string &name, const Vec3 &pos, const Quat &rot, bool kinematic = true,
+                                  float mass = 0.0f, const Vec3 &com = Vec3::Zero(),
+                                  const Mat3 &inertia_tensor = Mat3::Zero()) const;
+
+    [[nodiscard]] size_t add_body(const std::string &name, const Vec3 &pos, const Quat &rot, bool kinematic = true,
+                                  float mass = 0.0f, const Vec3 &com = Vec3::Zero(),
+                                  const Mat3 &inertia_tensor = Mat3::Zero()) const;
 
     [[nodiscard]] size_t add_shape_box(size_t body_id, float hx, float hy, float hz, const Vec3 &local_pos = Vec3::Zero(),
                          const Quat &local_rot = Quat::Identity(), float density = -1.0f, float thickness = -1.0f,
