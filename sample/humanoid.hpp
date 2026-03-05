@@ -137,7 +137,7 @@ public:
 
     Humanoid() {
         max_ticks_per_frame0_ = 2;
-        substeps0_ = 12;
+        substeps0_ = 20;
     }
 
     void Step(float dt) override {
@@ -385,7 +385,7 @@ public:
             X_mj(Vec3(0.0f, 0.00f,  0.02f)),
             0.0f, 0.0f,
             1.0f, 0.2f,
-            deg(-160), deg(2),
+            deg(0), deg(160),
             1.0e4f, 10.0f,
             0.01f,
             1.0e6f, 1.0e6f,
@@ -439,7 +439,7 @@ public:
             X_mj(Vec3(0.0f,  0.00f,  0.02f)),
             0.0f, 0.0f,
             1.0f, 0.2f,
-            deg(-160), deg(2),
+            deg(0), deg(160),
             1.0e4f, 10.0f,
             0.01f,
             1.0e6f, 1.0e6f,
