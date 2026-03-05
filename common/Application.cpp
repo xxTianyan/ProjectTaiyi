@@ -192,7 +192,7 @@ void Application::Run(const SampleId start_sample) {
         // key event
         PollHotkeys_();
         if (!ImGui::GetIO().WantCaptureKeyboard) {
-            UpdateOrbitCameraKeyboard(orbitCam_, dt, 10.0f);
+            UpdateOrbitCameraKeyboard(orbitCam_, dt, 1.0f);
         }
 
         // mouse event
