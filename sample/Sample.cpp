@@ -58,7 +58,6 @@ void Sample::Update([[maybe_unused]]AppContext &ctx) {
     // physical frame
     {
         ScopeTimer frame_timer = dbg_ ? dbg_->timer_frame() : ScopeTimer(nullptr);
-        scene_->InitStep();
 
         // accumulate simulation time
         float frame_dt = ctx.dt;

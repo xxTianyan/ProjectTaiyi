@@ -46,8 +46,11 @@ class Builder {
 public:
     explicit Builder(MModel& model) : model_(model) {};
 
-    [[nodiscard]] size_t add_cloth(float width, float height, int resX, int resY, const Vec3& center = Vec3{0.0f,0.0f,0.0f},
-    float mass = .1f, ClothOrientation orientation = ClothOrientation::Horizontal, float wave_density = 0.0f, float wave_amp = 0.0f,FixSide fix_mask = FixSide::TOP, const char* = "cloth") const;
+    [[nodiscard]] size_t add_cloth(float width, float height, int resX, int resY,
+                                   const Vec3 &center = Vec3{0.0f, 0.0f, 0.0f},
+                                   float mass = .1f, ClothOrientation orientation = ClothOrientation::Horizontal,
+                                   float wave_density = 0.0f, float wave_amp = 0.0f, FixSide fix_mask = FixSide::TOP,
+                                   const char * = "cloth") const;
 
     [[nodiscard]] size_t add_bunny(float height, float mass) const;
 

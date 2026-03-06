@@ -28,12 +28,6 @@ public:
     // state_in, state_out = state_out, state_in
     void SwapStates() noexcept { std::swap(in_idx_, out_idx_); }
 
-    void InitStep() {
-        /*
-         * TODO:Clean force here.
-         */
-    };
-
     void SetGravity(const Vec3& gravity) { model_.gravity_ = gravity; }
 
     MModel model_;

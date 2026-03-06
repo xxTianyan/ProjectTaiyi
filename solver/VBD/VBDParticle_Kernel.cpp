@@ -271,7 +271,7 @@ void VBDSolver::accumulate_stvk_triangle_force_hessian(const std::span<const Vec
     const uint32_t vtex_order,
     Vec3& force,
     Mat3& H) {
-    // advised by newton physics, evaluate_stvk_force_hessian function
+
     // StVK energy density: psi = mu * ||G||_F^2 + 0.5 * lambda * (trace(G))^2
 
     if (vtex_order > 2)
